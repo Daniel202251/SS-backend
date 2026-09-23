@@ -9,6 +9,7 @@ import {
   OneToMany,
   JoinColumn,
   Index,
+  VersionColumn,
 } from "typeorm";
 import { InvestmentStatus } from "../types/enums";
 import type { User } from "./User.model";
@@ -58,6 +59,9 @@ export class Investment {
 
   @DeleteDateColumn({ name: "deleted_at" })
   deletedAt!: Date | null;
+
+  @VersionColumn()
+  version!: number;
 
   @ManyToOne("Invoice", "investments", { onDelete: "CASCADE" })
   @JoinColumn({ name: "invoice_id" })
