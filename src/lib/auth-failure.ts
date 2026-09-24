@@ -14,29 +14,49 @@ export interface AuthFailureDetails {
 }
 
 export function truncateWalletAddress(address: string | null | undefined): string | null {
-  if (!address) {
+  if (typeof address !== "string") {
     return null;
   }
 
-  if (address.length <= 8) {
-    return address;
+  const trimmed = address.trim();
+  if (!trimmed) {
+    return null;
   }
 
-  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+  if (trimmed.length <= 8) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
 }
 
 export function extractWalletFromUnverifiedToken(token?: string): string | null {
-  if (!token) {
+  if (typeof token !== "string") {
     return null;
   }
 
-  const decoded = jwt.decode(token);
+  const trimmed = token.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let decoded: string | jwt.JwtPayload | null;
+  try {
+    decoded = jwt.decode(trimmed);
+  } catch {
+    return null;
+  }
   if (!decoded || typeof decoded === "string") {
     return null;
   }
 
   const sub = decoded.sub;
-  return typeof sub === "string" && sub.length > 0 ? sub : null;
+  if (typeof sub !== "string") {
+    return null;
+  }
+
+  const trimmedSub = sub.trim();
+  return trimmedSub.length > 0 ? trimmedSub : null;
 }
 
 export function buildAuthFailureDetails(
