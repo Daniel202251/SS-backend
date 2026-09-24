@@ -12,27 +12,123 @@ export interface AppLogger {
   child(metadata: LogMetadata): AppLogger;
 }
 
+/**
+ * Recursively normalizes log metadata:
+ * - Safely handles circular references (replaces them with "[Circular]")
+ * - Safely serializes BigInts as strings to prevent JSON.stringify exceptions
+ * - Extracts structured details from Error instances (name, message, stack, custom props)
+ * - Coerces primitives or non-plain-objects into structured metadata objects
+ */
+function sanitizeValue(value: unknown, seen: WeakSet<object>, depth: number): unknown {
+  if (value === undefined || value === null) return value;
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value !== "object") return value;
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+  if (depth > 8) return "[DepthLimit]";
+
+  if (value instanceof Error) {
+    const errorObj: Record<string, unknown> = {
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+    };
+    for (const [k, v] of Object.entries(value)) {
+      if (!(k in errorObj)) {
+        errorObj[k] = sanitizeValue(v, seen, depth + 1);
+      }
+    }
+    return errorObj;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeValue(item, seen, depth + 1));
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    result[k] = sanitizeValue(v, seen, depth + 1);
+  }
+  return result;
+}
+
+export function normalizeLogMetadata(
+  metadata?: unknown,
+  seen = new WeakSet<object>(),
+  depth = 0
+): LogMetadata {
+  if (metadata === undefined || metadata === null) {
+    return {};
+  }
+
+  if (typeof metadata !== "object") {
+    if (typeof metadata === "bigint") {
+      return { value: metadata.toString() };
+    }
+    return { value: metadata };
+  }
+
+  if (Array.isArray(metadata)) {
+    return {
+      items: metadata.map((item) => sanitizeValue(item, seen, depth + 1)),
+    };
+  }
+
+  const sanitized = sanitizeValue(metadata, seen, depth);
+  if (sanitized && typeof sanitized === "object" && !Array.isArray(sanitized)) {
+    return sanitized as LogMetadata;
+  }
+  return { value: sanitized };
+}
+
 class WinstonAppLogger implements AppLogger {
   constructor(private readonly baseLogger: winston.Logger) {}
 
+  private safeLog(
+    level: "debug" | "info" | "warn" | "error",
+    message: unknown,
+    metadata?: LogMetadata
+  ): void {
+    try {
+      const msg = typeof message === "string" ? message : String(message ?? "");
+      const meta = normalizeLogMetadata(metadata);
+      this.baseLogger[level](msg, meta);
+    } catch (err) {
+      // Emergency failsafe: logging operations must never throw and crash downstream caller flows
+      try {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(
+          `[Logger Fallback: ${level.toUpperCase()}] ${String(message)} | Logging Error: ${errorMsg}\n`
+        );
+      } catch {
+        // Ignore if stderr is unavailable
+      }
+    }
+  }
+
   debug(message: string, metadata: LogMetadata = {}): void {
-    this.baseLogger.debug(message, metadata);
+    this.safeLog("debug", message, metadata);
   }
 
   info(message: string, metadata: LogMetadata = {}): void {
-    this.baseLogger.info(message, metadata);
+    this.safeLog("info", message, metadata);
   }
 
   warn(message: string, metadata: LogMetadata = {}): void {
-    this.baseLogger.warn(message, metadata);
+    this.safeLog("warn", message, metadata);
   }
 
   error(message: string, metadata: LogMetadata = {}): void {
-    this.baseLogger.error(message, metadata);
+    this.safeLog("error", message, metadata);
   }
 
-  child(metadata: LogMetadata): AppLogger {
-    return new WinstonAppLogger(this.baseLogger.child(metadata));
+  child(metadata: LogMetadata = {}): AppLogger {
+    try {
+      const meta = normalizeLogMetadata(metadata);
+      return new WinstonAppLogger(this.baseLogger.child(meta));
+    } catch {
+      return this;
+    }
   }
 }
 
@@ -50,7 +146,7 @@ export const correlationIdFormat = winston.format((info) => {
 });
 
 function createBaseLogger(): winston.Logger {
-  return winston.createLogger({
+  const base = winston.createLogger({
     level: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === "test" ? "silent" : "info"),
     defaultMeta: {
       service: "stellarsettle-api",
@@ -64,6 +160,17 @@ function createBaseLogger(): winston.Logger {
     ),
     transports: [new winston.transports.Console()],
   });
+
+  // Handle unhandled transport errors to prevent process aborts
+  base.on("error", (error) => {
+    try {
+      process.stderr.write(`[Winston Error] ${error?.message ?? error}\n`);
+    } catch {
+      // Ignore write errors during shutdown
+    }
+  });
+
+  return base;
 }
 
 export function createLogger(baseLogger: winston.Logger = createBaseLogger()): AppLogger {
@@ -71,3 +178,21 @@ export function createLogger(baseLogger: winston.Logger = createBaseLogger()): A
 }
 
 export const logger = createLogger();
+
+/**
+ * Helper to execute an async operation with standardized error logging.
+ * Re-throws the error so upstream handlers or callers can handle it.
+ */
+export async function withErrorLogging<T>(
+  fn: () => Promise<T>,
+  errorMessage: string,
+  metadata?: LogMetadata,
+  appLogger: AppLogger = logger
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    appLogger.error(errorMessage, { ...metadata, error });
+    throw error;
+  }
+}

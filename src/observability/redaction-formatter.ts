@@ -64,7 +64,15 @@ function redactStringValue(value: string): string {
   return result;
 }
 
-function redactObjectValues(obj: Record<string, unknown>): Record<string, unknown> {
+function redactObjectValues(
+  obj: Record<string, unknown>,
+  seen = new WeakSet<object>()
+): Record<string, unknown> {
+  if (seen.has(obj)) {
+    return { "[Circular]": true };
+  }
+  seen.add(obj);
+
   const redacted: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(obj)) {
@@ -72,15 +80,36 @@ function redactObjectValues(obj: Record<string, unknown>): Record<string, unknow
       redacted[key] = "[REDACTED]";
     } else if (typeof value === "string") {
       redacted[key] = redactStringValue(value);
+    } else if (typeof value === "bigint") {
+      redacted[key] = value.toString();
+    } else if (value instanceof Error) {
+      redacted[key] = {
+        name: value.name,
+        message: redactStringValue(value.message),
+        stack: value.stack ? redactStringValue(value.stack) : undefined,
+        ...(value as unknown as Record<string, unknown>),
+      };
     } else if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-      redacted[key] = redactObjectValues(value as Record<string, unknown>);
+      if (seen.has(value)) {
+        redacted[key] = "[Circular]";
+      } else {
+        redacted[key] = redactObjectValues(value as Record<string, unknown>, seen);
+      }
     } else if (Array.isArray(value)) {
-      redacted[key] = value.map((item) => {
-        if (typeof item === "string") return redactStringValue(item);
-        if (item !== null && typeof item === "object")
-          return redactObjectValues(item as Record<string, unknown>);
-        return item;
-      });
+      if (seen.has(value)) {
+        redacted[key] = "[Circular]";
+      } else {
+        seen.add(value);
+        redacted[key] = value.map((item) => {
+          if (typeof item === "string") return redactStringValue(item);
+          if (typeof item === "bigint") return item.toString();
+          if (item !== null && typeof item === "object") {
+            if (seen.has(item)) return "[Circular]";
+            return redactObjectValues(item as Record<string, unknown>, seen);
+          }
+          return item;
+        });
+      }
     } else {
       redacted[key] = value;
     }
