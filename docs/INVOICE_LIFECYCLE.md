@@ -83,6 +83,31 @@ effects are:
 
 A failing effect is logged and does not block the others or fail the request.
 
+## Notifications
+
+In-app notifications are stored in the `notifications` table with a `read`
+flag:
+
+| Event                                                  | Recipients             | Type                 |
+| ------------------------------------------------------ | ---------------------- | -------------------- |
+| New investment                                         | investor, seller       | `investment_created` |
+| Invoice funded                                         | seller, every investor | `invoice_funded`     |
+| Invoice settled                                        | seller, every investor | `invoice_settled`    |
+| Invoice rejected                                       | seller                 | `invoice_rejected`   |
+| Other status changes (submitted, published, cancelled) | seller                 | `invoice`            |
+
+"Every investor" means each user with a pending, confirmed or settled
+investment in the invoice, notified once even if they hold several positions.
+New-investment notifications are sent after the investment commits. A
+notification that fails to store is logged and never fails the investment.
+
+Authenticated users read their notifications through:
+
+- `GET /api/v1/notifications`: paginated, filterable by `read` and `type`
+- `GET /api/v1/notifications/unread-count`: `{ "unread": n }`
+- `PATCH /api/v1/notifications/:id/read`
+- `PATCH /api/v1/notifications/read-all`: one `UPDATE`, returns `{ "updated": n }`
+
 ## Endpoints
 
 | Endpoint                                  | Transition                                                |

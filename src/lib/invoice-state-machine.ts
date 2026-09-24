@@ -393,6 +393,14 @@ const SELLER_MESSAGES: Partial<
   ],
 };
 
+// Lifecycle events with their own type so clients can filter on them;
+// other status changes are reported as generic invoice notifications.
+const SELLER_NOTIFICATION_TYPES: Partial<Record<InvoiceStatus, NotificationType>> = {
+  [InvoiceStatus.REJECTED]: NotificationType.INVOICE_REJECTED,
+  [InvoiceStatus.FUNDED]: NotificationType.INVOICE_FUNDED,
+  [InvoiceStatus.SETTLED]: NotificationType.INVOICE_SETTLED,
+};
+
 export function createSellerNotificationEffect(sink: NotificationSink): TransitionEffect {
   return async function notifySeller(transition) {
     const build = SELLER_MESSAGES[transition.to];
@@ -400,7 +408,7 @@ export function createSellerNotificationEffect(sink: NotificationSink): Transiti
     const [title, message] = build(transition.invoice, transition.reason);
     await sink.createNotification(
       transition.invoice.sellerId,
-      NotificationType.INVOICE,
+      SELLER_NOTIFICATION_TYPES[transition.to] ?? NotificationType.INVOICE,
       title,
       message
     );

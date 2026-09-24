@@ -11,6 +11,11 @@ import { createAuthService } from "./services/auth.service";
 import { createNotificationService } from "./services/notification.service";
 import { InvoiceService } from "./services/invoice.service";
 import { createInvoiceStateMachine } from "./lib/invoice-state-machine";
+import {
+  createInvestmentNotifier,
+  createInvestorDirectory,
+  createInvestorNotificationEffect,
+} from "./lib/invoice-notifications";
 import { Invoice } from "./models/Invoice.model";
 import { createIPFSService } from "./services/ipfs.service";
 import { createInvestmentService } from "./services/investment.service";
@@ -34,14 +39,23 @@ export async function bootstrap(): Promise<{ server: Server }> {
   const ipfsService = createIPFSService(config.ipfs, logger);
   // One state machine shared by every service that changes invoice status,
   // so transitions are validated, recorded and notified the same way.
-  const invoiceStateMachine = createInvoiceStateMachine({ notificationSink: notificationService });
+  const invoiceStateMachine = createInvoiceStateMachine({
+    notificationSink: notificationService,
+    effects: [
+      createInvestorNotificationEffect(notificationService, createInvestorDirectory(dataSource)),
+    ],
+  });
   const invoiceService = new InvoiceService({
     invoiceRepository: dataSource.getRepository(Invoice),
     ipfsService,
     dataSource,
     stateMachine: invoiceStateMachine,
   });
-  const investmentService = createInvestmentService(dataSource, invoiceStateMachine);
+  const investmentService = createInvestmentService(
+    dataSource,
+    invoiceStateMachine,
+    createInvestmentNotifier(notificationService, logger)
+  );
   const sorobanConfig = getSorobanConfig();
   const distributor =
     sorobanConfig.paymentDistributorContractId && sorobanConfig.platformSecretKey

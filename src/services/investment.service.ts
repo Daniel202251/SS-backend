@@ -10,6 +10,7 @@ import {
   type InvoiceStateMachine,
   type InvoiceTransition,
 } from "../lib/invoice-state-machine";
+import type { InvestmentNotifier } from "../lib/invoice-notifications";
 import { logger } from "../observability/logger";
 import { stroopsToXlm } from "../lib/stellar-format";
 
@@ -67,7 +68,8 @@ const FAILED_INVESTMENT_STATUSES = [InvestmentStatus.CANCELLED];
 export class InvestmentService {
   constructor(
     private readonly dataSource: DataSource,
-    private readonly stateMachine: InvoiceStateMachine = createInvoiceStateMachine()
+    private readonly stateMachine: InvoiceStateMachine = createInvoiceStateMachine(),
+    private readonly investmentNotifier?: InvestmentNotifier
   ) {}
 
   /**
@@ -301,7 +303,7 @@ export class InvestmentService {
       try {
         // Side effects are collected from the transaction's return value, so
         // a rolled-back or retried attempt never has any to run.
-        const { savedInvestment, fundedTransition } = await this.dataSource.transaction(async (transactionalEntityManager: EntityManager) => {
+        const { savedInvestment, invoice, fundedTransition } = await this.dataSource.transaction(async (transactionalEntityManager: EntityManager) => {
           // 1. Lock the invoice row for update (if supported by the driver).
           //    SQLite does not support row-level locking, so we fall back to a plain read.
           let invoice: Invoice | null;
@@ -416,9 +418,10 @@ export class InvestmentService {
             );
           }
 
-          return { savedInvestment, fundedTransition };
+          return { savedInvestment, invoice, fundedTransition };
         });
 
+        await this.investmentNotifier?.investmentCreated({ invoice, investment: savedInvestment });
         if (fundedTransition) {
           await this.stateMachine.dispatch(fundedTransition);
         }
@@ -451,7 +454,8 @@ export class InvestmentService {
 
 export function createInvestmentService(
   dataSource: DataSource,
-  stateMachine?: InvoiceStateMachine
+  stateMachine?: InvoiceStateMachine,
+  investmentNotifier?: InvestmentNotifier
 ): InvestmentService {
-  return new InvestmentService(dataSource, stateMachine);
+  return new InvestmentService(dataSource, stateMachine, investmentNotifier);
 }

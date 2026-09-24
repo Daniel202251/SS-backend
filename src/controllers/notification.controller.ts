@@ -48,5 +48,17 @@ export function createNotificationController(notificationService: NotificationSe
 
       res.status(200).json({ data: notification });
     },
+
+    markAllRead: async (req: Request, res: Response): Promise<void> => {
+      const result = await notificationService.markAllNotificationsRead(req.user!.id);
+
+      res.status(200).json({ data: result });
+    },
+
+    unreadCount: async (req: Request, res: Response): Promise<void> => {
+      const result = await notificationService.getUnreadCount(req.user!.id);
+
+      res.status(200).json({ data: result });
+    },
   };
 }

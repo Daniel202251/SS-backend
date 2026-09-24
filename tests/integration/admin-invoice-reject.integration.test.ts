@@ -177,7 +177,7 @@ describe("Admin invoice reject: persists reason, transitions status, notifies se
     expect(notificationSink.sent).toHaveLength(1);
     const [notification] = notificationSink.sent;
     expect(notification.userId).toBe(sellerA);
-    expect(notification.type).toBe(NotificationType.INVOICE);
+    expect(notification.type).toBe(NotificationType.INVOICE_REJECTED);
     expect(notification.message).toContain(reason);
   });
 
