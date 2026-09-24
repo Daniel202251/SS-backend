@@ -1,7 +1,12 @@
-import { randomUUID } from "crypto";
 import type { NextFunction, Request, Response } from "express";
 import type { AppLogger } from "../observability/logger";
 import type { MetricsRegistry } from "../observability/metrics";
+import {
+  CORRELATION_ID_HEADER,
+  REQUEST_ID_HEADER,
+  resolveCorrelationId,
+  runWithRequestContext,
+} from "../observability/request-context";
 
 interface RequestObservabilityDependencies {
   logger: AppLogger;
@@ -40,22 +45,21 @@ function resolveRouteLabel(req: Request): string {
   return route || "/";
 }
 
-function resolveRequestId(requestIdHeader: string | string[] | undefined): string {
-  if (typeof requestIdHeader === "string" && requestIdHeader.trim()) {
-    return requestIdHeader.trim();
-  }
-
-  return randomUUID();
-}
-
 export function createRequestObservabilityMiddleware(
   dependencies: RequestObservabilityDependencies
 ) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const requestId = resolveRequestId(req.header("x-request-id"));
+    const requestId = resolveCorrelationId(
+      req.headers[CORRELATION_ID_HEADER],
+      req.headers[REQUEST_ID_HEADER]
+    );
     const startedAt = process.hrtime.bigint();
 
+    // The correlation ID doubles as the request ID so existing consumers of
+    // X-Request-Id / req.requestId keep working unchanged.
     req.requestId = requestId;
+    req.correlationId = requestId;
+    res.setHeader("X-Correlation-Id", requestId);
     res.setHeader("X-Request-Id", requestId);
 
     res.on("finish", () => {
@@ -63,8 +67,11 @@ export function createRequestObservabilityMiddleware(
       const route = resolveRouteLabel(req);
       const statusClass = `${Math.floor(res.statusCode / 100)}xx`;
       const metadata = {
+        correlationId: requestId,
         requestId,
         method: req.method,
+        // Query strings are left out on purpose: they can carry tokens.
+        path: req.originalUrl.split("?")[0],
         route,
         statusCode: res.statusCode,
         statusClass,
@@ -83,6 +90,6 @@ export function createRequestObservabilityMiddleware(
       }
     });
 
-    next();
+    runWithRequestContext({ correlationId: requestId }, next);
   };
 }

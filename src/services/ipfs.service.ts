@@ -1,6 +1,7 @@
 import type { AppConfig } from "../config/env";
 import { ServiceError } from "../utils/service-error";
 import type { AppLogger } from "../observability/logger";
+import { withCorrelationHeaders } from "../observability/request-context";
 
 export interface IPFSUploadResult {
   hash: string;
@@ -77,9 +78,9 @@ export class IPFSService {
         `${this.config.apiUrl}/pinning/pinFileToIPFS`,
         {
           method: "POST",
-          headers: {
+          headers: withCorrelationHeaders({
             Authorization: `Bearer ${this.config.jwt}`,
-          },
+          }),
           body: formData,
         }
       );

@@ -134,6 +134,34 @@ describe("Observability", () => {
     expect(response.body.data?.requestId).toBe("client-request-id");
   });
 
+  it("logs requests that fail before reaching a route handler, with a correlation ID", async () => {
+    const logger = new CaptureLogger();
+    const app = createApp({
+      authService: createAuthServiceStub(),
+      logger,
+      metricsEnabled: true,
+      metricsRegistry: new MetricsRegistry(),
+    });
+
+    // Malformed JSON is rejected by the body parser, so this only shows up
+    // in the access log if the logging middleware runs ahead of it.
+    const response = await request(app)
+      .post("/api/v1/auth/challenge")
+      .set("Content-Type", "application/json")
+      .send("{not json");
+
+    const correlationId = response.headers["x-correlation-id"];
+    expect(correlationId).toEqual(expect.any(String));
+
+    const requestLog = logger.entries.find((entry) => entry.message === "HTTP request completed.");
+    expect(requestLog?.metadata).toMatchObject({
+      correlationId,
+      method: "POST",
+      path: "/api/v1/auth/challenge",
+      statusCode: response.status,
+    });
+  });
+
   it("logs structured auth failure metadata after a 401 response", async () => {
     const logger = new CaptureLogger();
     const app = createApp({

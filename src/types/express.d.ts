@@ -5,6 +5,7 @@ declare global {
     interface Request {
       user?: AuthenticatedRequestUser;
       requestId?: string;
+      correlationId?: string;
       routeBasePath?: string;
     }
   }
