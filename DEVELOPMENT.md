@@ -119,6 +119,12 @@ fail-open behavior must be an explicit, risk-reviewed choice.
 Set `TRUST_PROXY` to the exact trusted proxy topology. A blanket value can allow
 clients to spoof `X-Forwarded-For` and bypass IP-based quotas.
 
+Per-route challenge and verification quotas are wired in
+[`src/routes/auth.routes.ts`](./src/routes/auth.routes.ts) through the factories in
+[`src/middleware/rate-limit.middleware.ts`](./src/middleware/rate-limit.middleware.ts).
+When the shared store cannot be reached, requests fail closed with
+`RATE_LIMIT_STORE_UNAVAILABLE` (HTTP 503) so throttling is never silently disabled.
+
 ## Troubleshooting
 
 ### `npm ci` rejects the lockfile
@@ -141,6 +147,12 @@ connections, intervals, and workers in `afterEach`/`afterAll` hooks.
 
 Inspect the standard `RateLimit` and `Retry-After` headers, confirm `TRUST_PROXY`,
 and verify that all replicas use the same shared store in production.
+
+### Throttling unavailable (503 `RATE_LIMIT_STORE_UNAVAILABLE`)
+
+The rate limiter could not reach its shared store. Verify the store process is
+reachable, confirm every replica is configured with the same store, and retry.
+Fail-open is only available as an explicit opt-in on the middleware options.
 
 ## Debugging external integrations
 

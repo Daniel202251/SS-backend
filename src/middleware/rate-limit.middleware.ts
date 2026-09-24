@@ -46,9 +46,16 @@ export function createRateLimitMiddleware(
   if (!Number.isSafeInteger(options.max) || options.max <= 0) {
     throw new Error("Rate limit max must be a positive integer.");
   }
+  if (options.keyGenerator !== undefined && typeof options.keyGenerator !== "function") {
+    throw new Error("Rate limit keyGenerator must be a function.");
+  }
 
-  const code = options.code ?? "RATE_LIMIT_EXCEEDED";
-  const message = options.message ?? "Too many requests, please try again later.";
+  const code =
+    options.code && options.code.trim() ? options.code : "RATE_LIMIT_EXCEEDED";
+  const message =
+    options.message && options.message.trim()
+      ? options.message
+      : "Too many requests, please try again later.";
   const limiter = rateLimit({
     windowMs: options.windowMs,
     max: options.max,
@@ -98,7 +105,7 @@ export function createRateLimitMiddleware(
         failOpen: options.failOpenOnStoreError === true,
       });
 
-      if (options.failOpenOnStoreError) {
+      if (options.failOpenOnStoreError === true) {
         next();
         return;
       }
