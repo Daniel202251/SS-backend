@@ -63,11 +63,25 @@ export function buildAuthFailureDetails(
   token: string | undefined,
   reason: AuthFailureReason
 ): { authFailure: AuthFailureDetails } {
+  let truncatedAddress: string | null = null;
+  try {
+    truncatedAddress = truncateWalletAddress(extractWalletFromUnverifiedToken(token));
+  } catch {
+    truncatedAddress = null;
+  }
+
+  let failedAt: string;
+  try {
+    failedAt = new Date().toISOString();
+  } catch {
+    failedAt = "1970-01-01T00:00:00.000Z";
+  }
+
   return {
     authFailure: {
       reason,
-      truncatedAddress: truncateWalletAddress(extractWalletFromUnverifiedToken(token)),
-      failedAt: new Date().toISOString(),
+      truncatedAddress,
+      failedAt,
     },
   };
 }
@@ -78,7 +92,10 @@ export function classifyJwtError(error: unknown): AuthFailureReason {
   }
 
   if (error instanceof jwt.JsonWebTokenError) {
-    return "invalid_signature";
+    if (error.message.toLowerCase().includes("invalid signature")) {
+      return "invalid_signature";
+    }
+    return "invalid_token";
   }
 
   return "invalid_token";
