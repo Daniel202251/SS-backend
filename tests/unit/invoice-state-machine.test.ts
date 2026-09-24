@@ -78,10 +78,10 @@ describe("Invoice state machine — valid transitions (issue #110)", () => {
     expect(result.status).toBe(InvoiceStatus.PUBLISHED);
   });
 
-  it("allows PENDING → PUBLISHED", async () => {
+  it("allows PENDING → PUBLISHED on admin approval", async () => {
     const invoice = makePublishableInvoice(InvoiceStatus.PENDING);
     const service = createService(invoice);
-    const result = await service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID });
+    const result = await service.approveInvoice({ invoiceId: invoice.id });
     expect(result.status).toBe(InvoiceStatus.PUBLISHED);
   });
 });

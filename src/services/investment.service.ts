@@ -4,7 +4,12 @@ import { Investment } from "../models/Investment.model";
 import { InvoiceStatus, InvestmentStatus } from "../types/enums";
 import { ServiceError } from "../utils/service-error";
 import { Decimal } from "decimal.js";
-import { logInvoiceTransition } from "../lib/invoice-lifecycle-log";
+import {
+  createInvoiceStateMachine,
+  entityManagerTransitionStore,
+  type InvoiceStateMachine,
+  type InvoiceTransition,
+} from "../lib/invoice-state-machine";
 import { logger } from "../observability/logger";
 import { stroopsToXlm } from "../lib/stellar-format";
 
@@ -60,7 +65,10 @@ const SETTLED_INVESTMENT_STATUSES = [InvestmentStatus.SETTLED];
 const FAILED_INVESTMENT_STATUSES = [InvestmentStatus.CANCELLED];
 
 export class InvestmentService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly stateMachine: InvoiceStateMachine = createInvoiceStateMachine()
+  ) {}
 
   /**
    * Aggregates an investor's portfolio across all their investments.
@@ -291,7 +299,9 @@ export class InvestmentService {
 
     while (true) {
       try {
-        return await this.dataSource.transaction(async (transactionalEntityManager: EntityManager) => {
+        // Side effects are collected from the transaction's return value, so
+        // a rolled-back or retried attempt never has any to run.
+        const { savedInvestment, fundedTransition } = await this.dataSource.transaction(async (transactionalEntityManager: EntityManager) => {
           // 1. Lock the invoice row for update (if supported by the driver).
           //    SQLite does not support row-level locking, so we fall back to a plain read.
           let invoice: Invoice | null;
@@ -392,22 +402,27 @@ export class InvestmentService {
 
           // 9. Transition invoice to FUNDED if fully subscribed
           const newTotalInvested = totalInvested.plus(amount);
+          let fundedTransition: InvoiceTransition | null = null;
           if (newTotalInvested.gte(netAmount)) {
-            const previousStatus = invoice.status;
-            invoice.status = InvoiceStatus.FUNDED;
-            await transactionalEntityManager.save(Invoice, invoice);
-
-            logInvoiceTransition(logger, {
-              invoiceId: invoice.id,
-              fromState: previousStatus,
-              toState: InvoiceStatus.FUNDED,
-              actorWallet: investorWallet,
-              reason: "fully_funded",
-            });
+            fundedTransition = await this.stateMachine.transition(
+              entityManagerTransitionStore(transactionalEntityManager),
+              invoice,
+              InvoiceStatus.FUNDED,
+              {
+                actor: { role: "system", wallet: investorWallet },
+                trigger: "fully_funded",
+                context: { fundedAmount: newTotalInvested.toFixed(4) },
+              }
+            );
           }
 
-          return savedInvestment;
+          return { savedInvestment, fundedTransition };
         });
+
+        if (fundedTransition) {
+          await this.stateMachine.dispatch(fundedTransition);
+        }
+        return savedInvestment;
       } catch (error) {
         if (error instanceof OptimisticLockVersionMismatchError) {
           attempt++;
@@ -434,6 +449,9 @@ export class InvestmentService {
   }
 }
 
-export function createInvestmentService(dataSource: DataSource): InvestmentService {
-  return new InvestmentService(dataSource);
+export function createInvestmentService(
+  dataSource: DataSource,
+  stateMachine?: InvoiceStateMachine
+): InvestmentService {
+  return new InvestmentService(dataSource, stateMachine);
 }

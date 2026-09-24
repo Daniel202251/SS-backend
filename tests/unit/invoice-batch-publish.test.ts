@@ -2,6 +2,7 @@ import { InvoiceService } from "@/services/invoice.service";
 import { ServiceError } from "@/utils/service-error";
 import { Invoice } from "@/models/Invoice.model";
 import { InvoiceStatus, KYCStatus } from "@/types/enums";
+import { InvoiceStatusHistory } from "@/models/InvoiceStatusHistory.model";
 
 const SELLER_ID = "seller-1";
 const OTHER_SELLER_ID = "seller-2";
@@ -45,6 +46,10 @@ describe("InvoiceService.publishInvoicesBatch", () => {
   let transactionCommitted: boolean;
   let service: InvoiceService;
 
+  const invoiceSaves = () => managerSave.mock.calls.filter(([entity]) => entity === Invoice);
+  const historySaves = () =>
+    managerSave.mock.calls.filter(([entity]) => entity === InvoiceStatusHistory);
+
   /** Stub the repository so a batched `find` resolves the requested invoice ids. */
   function stubInvoices(invoices: Invoice[]) {
     repository.find.mockImplementation(async ({ where }: { where: { id: { value: string[] } } }) => {
@@ -55,7 +60,9 @@ describe("InvoiceService.publishInvoicesBatch", () => {
 
   beforeEach(() => {
     transactionCommitted = false;
-    managerSave = jest.fn(async (invoice: Invoice) => invoice);
+    // The state machine saves the invoice and a status history row per
+    // publish: save(Invoice, invoice) and save(InvoiceStatusHistory, row).
+    managerSave = jest.fn(async (_entity: unknown, value: unknown) => value);
 
     repository = {
       findOne: jest.fn(),
@@ -95,7 +102,8 @@ describe("InvoiceService.publishInvoicesBatch", () => {
       expect(result.count).toBe(3);
       expect(result.published.map((i) => i.id)).toEqual(["a", "b", "c"]);
       expect(dataSource.transaction).toHaveBeenCalledTimes(1);
-      expect(managerSave).toHaveBeenCalledTimes(3);
+      expect(invoiceSaves()).toHaveLength(3);
+      expect(historySaves()).toHaveLength(3);
       for (const invoice of invoices) {
         expect(invoice.status).toBe(InvoiceStatus.PUBLISHED);
       }
@@ -122,7 +130,7 @@ describe("InvoiceService.publishInvoicesBatch", () => {
       });
 
       expect(result.count).toBe(1);
-      expect(managerSave).toHaveBeenCalledTimes(1);
+      expect(invoiceSaves()).toHaveLength(1);
     });
 
     it("publishes a single-invoice batch", async () => {
@@ -168,7 +176,7 @@ describe("InvoiceService.publishInvoicesBatch", () => {
     it("propagates a mid-transaction database failure and does not commit", async () => {
       stubInvoices([draftInvoice("a"), draftInvoice("b")]);
       managerSave
-        .mockImplementationOnce(async (invoice: Invoice) => invoice)
+        .mockImplementationOnce(async (_entity: unknown, value: unknown) => value)
         .mockImplementationOnce(async () => {
           throw new Error("deadlock detected");
         });

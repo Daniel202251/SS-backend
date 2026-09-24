@@ -4,6 +4,7 @@ import { Invoice } from "../src/models/Invoice.model";
 import { Investment } from "../src/models/Investment.model";
 import { InvoiceStatus, InvestmentStatus } from "../src/types/enums";
 import { ServiceError } from "../src/utils/service-error";
+import { InvoiceStatusHistory } from "../src/models/InvoiceStatusHistory.model";
 
 const INVESTOR_WALLET = "GINVESTORWALLET1234567890ABCDEFGHIJKLMNOPQRSTUV";
 
@@ -84,7 +85,17 @@ describe("InvestmentService", () => {
     await investmentService.createInvestment(input);
 
     expect(mockInvoice.status).toBe(InvoiceStatus.FUNDED);
-    expect(mockEntityManager.save).toHaveBeenCalledTimes(2); // Investment and Invoice
+    expect(mockEntityManager.save).toHaveBeenCalledTimes(3); // Investment, Invoice and status history
+    expect(mockEntityManager.save).toHaveBeenCalledWith(
+      InvoiceStatusHistory,
+      expect.objectContaining({
+        invoiceId: "invoice-1",
+        fromStatus: InvoiceStatus.PUBLISHED,
+        toStatus: InvoiceStatus.FUNDED,
+        actorRole: "system",
+        trigger: "fully_funded",
+      })
+    );
   });
 
   it("should reject investment if it exceeds capacity", async () => {

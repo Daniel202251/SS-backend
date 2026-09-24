@@ -440,7 +440,7 @@ describe("InvoiceService", () => {
         })
       ).rejects.toMatchObject({
         code: "invoice_not_publishable",
-        statusCode: 400,
+        statusCode: 422,
       });
     });
 
@@ -463,7 +463,7 @@ describe("InvoiceService", () => {
         })
       ).rejects.toMatchObject({
         code: "invalid_status_transition",
-        statusCode: 400,
+        statusCode: 422,
       });
     });
 
@@ -481,16 +481,26 @@ describe("InvoiceService", () => {
       });
     });
 
-    it("should allow transition from pending to published", async () => {
+    it("should not let the seller publish an invoice that is under review", async () => {
+      // pending → published is the admin approval step (issue #468).
       const pendingInvoice = { ...publishableInvoice, status: InvoiceStatus.PENDING };
       mockInvoiceRepository.findOne.mockResolvedValue(pendingInvoice);
-      const publishedInvoice = { ...pendingInvoice, status: InvoiceStatus.PUBLISHED };
-      mockInvoiceRepository.save.mockResolvedValue(publishedInvoice);
 
-      const result = await invoiceService.publishInvoice({
-        invoiceId: "invoice-123",
-        sellerId: "seller-456",
-      });
+      await expect(
+        invoiceService.publishInvoice({
+          invoiceId: "invoice-123",
+          sellerId: "seller-456",
+        })
+      ).rejects.toMatchObject({ code: "transition_not_permitted", statusCode: 403 });
+      expect(mockInvoiceRepository.save).not.toHaveBeenCalled();
+    });
+
+    it("should allow an admin to approve a pending invoice", async () => {
+      const pendingInvoice = { ...publishableInvoice, status: InvoiceStatus.PENDING };
+      mockInvoiceRepository.findOne.mockResolvedValue(pendingInvoice);
+      mockInvoiceRepository.save.mockImplementation(async (invoice: unknown) => invoice);
+
+      const result = await invoiceService.approveInvoice({ invoiceId: "invoice-123" });
 
       expect(result.status).toBe(InvoiceStatus.PUBLISHED);
     });
@@ -528,7 +538,7 @@ describe("InvoiceService", () => {
         })
       ).rejects.toMatchObject({
         code: "invoice_not_publishable",
-        statusCode: 400,
+        statusCode: 422,
       });
       expect(mockInvoiceRepository.save).not.toHaveBeenCalled();
     });

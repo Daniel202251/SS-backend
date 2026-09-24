@@ -1,37 +1,96 @@
 # Invoice Lifecycle
 
-This service models invoices as a small state machine:
+Invoice status changes go through a single state machine,
+[`src/lib/invoice-state-machine.ts`](../src/lib/invoice-state-machine.ts). It
+enforces the graph, the role allowed to take each step, and each step's
+precondition. It also records every change in `invoice_status_history` and runs
+side effects exactly once after the change commits.
 
 ```mermaid
 stateDiagram-v2
   [*] --> draft
-  draft --> pending: submit for review
-  draft --> published: publish directly
-  draft --> cancelled: discard
-  pending --> published: approve + publish
-  pending --> cancelled: reject or withdraw
-  published --> funded: fully subscribed
-  published --> cancelled: expire unfunded / admin closeout
-  funded --> settled: escrow payout completes
-  funded --> cancelled: settlement reversal / void
+  draft --> pending: seller submits for review
+  draft --> published: seller publishes directly
+  draft --> rejected: admin rejects
+  draft --> cancelled: seller / admin discards
+  pending --> published: admin approves
+  pending --> rejected: admin rejects
+  pending --> cancelled: seller withdraws / admin
+  published --> funded: fully subscribed (system)
+  published --> cancelled: admin closeout
+  funded --> settled: settlement completes
+  funded --> cancelled: admin void
   settled --> [*]
+  rejected --> [*]
   cancelled --> [*]
 ```
 
-## States
+In the terms used by issue #468: `draft` = submitted, `pending` = under review,
+`published` = active.
 
-| State | Meaning | Actor | Guard | Investor / escrow impact |
-| --- | --- | --- | --- | --- |
-| `draft` | Editable invoice not yet offered to investors. | Seller | None beyond ownership. | No commitments or escrow activity. |
-| `pending` | Transitional review state before publication. | Seller or workflow | Must still be valid and owned by the seller. | Still no investor commitments. |
-| `published` | Invoice is live and fundable. | Seller / admin workflow | `validateInvoiceForPublish()` must pass. | Investors may commit; Soroban escrow draft can be prepared when funding starts. |
-| `funded` | Funding target reached and capital is locked for settlement. | Funding workflow | Total commitments meet or exceed the net amount. | Investor commitments are recorded; escrow funding is tracked for reconciliation. |
-| `settled` | Invoice repayment completed. | Settlement workflow | Escrow / repayment verification must succeed. | Investors realize returns and the transaction becomes terminal. |
-| `cancelled` | Terminal failure or closeout state. | Seller, admin, or workflow | Only valid from non-terminal states. | No new commitments; any unfunded published invoice is closed out here instead of introducing a separate status. |
+## Transitions
 
-## Notes
+| From → To                        | Allowed roles         | Precondition                         | Error when it fails                  |
+| -------------------------------- | --------------------- | ------------------------------------ | ------------------------------------ |
+| `draft → pending`                | seller (owner)        | `validateInvoiceForPublish()` passes | 422 `invoice_not_publishable`        |
+| `draft → published`              | seller (owner)        | `validateInvoiceForPublish()` passes | 422 `invoice_not_publishable`        |
+| `pending → published`            | admin                 | `validateInvoiceForPublish()` passes | 422 `invoice_not_publishable`        |
+| `draft / pending → rejected`     | admin                 | non-empty reason                     | 422 `transition_precondition_failed` |
+| `published → funded`             | system                | committed amount ≥ net amount        | 422 `transition_precondition_failed` |
+| `funded → settled`               | admin, system         | —                                    | —                                    |
+| `draft / pending → cancelled`    | seller (owner), admin | —                                    | —                                    |
+| `published / funded → cancelled` | admin                 | —                                    | —                                    |
 
-- `draft -> published` is allowed directly; `pending` is optional.
-- `published -> cancelled` is the terminal path for an unfunded or abandoned invoice.
-- `funded -> settled` is the normal success path after repayment is confirmed.
-- `settled` and `cancelled` are terminal states.
+A transition that is not in the table is rejected with **422
+`invalid_status_transition`**. A role that the table does not allow, or a seller
+who does not own the invoice, is rejected with **403 `transition_not_permitted`**.
+Invoice routes return these errors in a structured form:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_STATUS_TRANSITION",
+    "message": "Cannot transition invoice from funded to published. Allowed next statuses from funded: settled, cancelled.",
+    "details": {
+      "from": "funded",
+      "to": "published",
+      "allowedTransitions": ["settled", "cancelled"]
+    }
+  }
+}
+```
+
+## History
+
+Each transition writes a row to `invoice_status_history` in the same
+database transaction as the status update: `from_status`, `to_status`,
+`actor_role`, `actor_id`, `trigger` (e.g. `fully_funded`), `reason` and
+`created_at`. The current status stays on `invoices.status`.
+`GET /api/v1/invoices/:id/history` returns an invoice's history to its seller.
+
+## Side effects
+
+`InvoiceStateMachine.transition()` only validates and persists. Callers run
+`dispatch()` after their transaction commits, so a rolled-back change never
+notifies anyone. Dispatching the same transition twice is a no-op. The built-in
+effects are:
+
+- the `Invoice lifecycle state transition.` audit log
+- a seller notification (when a notification service is configured)
+- cache invalidation of `invoice:<id>`, `seller:<sellerId>:invoices` and
+  `marketplace:listings` (when a `CacheInvalidator` is configured)
+
+A failing effect is logged and does not block the others or fail the request.
+
+## Endpoints
+
+| Endpoint                                  | Transition                                                |
+| ----------------------------------------- | --------------------------------------------------------- |
+| `POST /api/v1/invoices/:id/submit`        | draft → pending                                           |
+| `POST /api/v1/invoices/:id/publish`       | draft → published                                         |
+| `POST /api/v1/invoices/batch-publish`     | draft → published (all or nothing)                        |
+| `POST /api/v1/admin/invoices/:id/approve` | pending → published                                       |
+| `POST /api/v1/admin/invoices/:id/reject`  | draft / pending → rejected                                |
+| `POST /api/v1/investments`                | published → funded, when the investment completes funding |
+| `POST /api/v1/settlements/:invoiceId`     | funded → settled                                          |

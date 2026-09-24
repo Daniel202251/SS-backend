@@ -242,6 +242,12 @@ export function createInvoiceRouter({ invoiceService, config }: InvoiceRouterDep
     controller.publishInvoice
   );
 
+  // POST /api/v1/invoices/:id/submit - Submit a draft for admin review (draft → pending)
+  router.post("/:id/submit", authenticateJWT, kycGating, controller.submitInvoiceForReview);
+
+  // GET /api/v1/invoices/:id/history - Status transition history, oldest first
+  router.get("/:id/history", authenticateJWT, controller.getInvoiceStatusHistory);
+
   // POST /api/v1/invoices/:id/document - Upload document
   router.post(
     "/:id/document",

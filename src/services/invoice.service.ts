@@ -3,10 +3,18 @@ import Decimal from "decimal.js";
 import { Invoice } from "../models/Invoice.model";
 import { Investment } from "../models/Investment.model";
 import { User } from "../models/User.model";
-import { InvoiceStatus, KYCStatus, InvestmentStatus, NotificationType } from "../types/enums";
+import { InvoiceStatus, KYCStatus } from "../types/enums";
 import { ServiceError } from "../utils/service-error";
 import { validateInvoiceForPublish } from "../lib/validate-invoice-for-publish";
-import { logInvoiceTransition } from "../lib/invoice-lifecycle-log";
+import {
+  createInvoiceStateMachine,
+  entityManagerTransitionStore,
+  type InvoiceStateMachine,
+  type InvoiceTransition,
+  type NotificationSink,
+  type TransitionOptions,
+} from "../lib/invoice-state-machine";
+import { InvoiceStatusHistory } from "../models/InvoiceStatusHistory.model";
 import { logger } from "../observability/logger";
 import { AppError } from "../utils/http-error";
 import type { IPFSService, IPFSUploadResult } from "./ipfs.service";
@@ -30,29 +38,19 @@ export interface InvoiceRepositoryContract {
   create(data: Partial<Invoice>): Invoice;
 }
 
-/**
- * Minimal contract for notifying a user, satisfied by
- * `NotificationService.createNotification` (see notification.service.ts).
- * Kept as a narrow structural type here (rather than importing
- * `NotificationService` directly) to avoid coupling `InvoiceService` to the
- * notification module's full surface area.
- */
-export interface NotificationSink {
-  createNotification(
-    userId: string,
-    type: NotificationType,
-    title: string,
-    message: string
-  ): Promise<unknown>;
-}
+// Kept exported from here for existing importers; defined alongside the
+// state machine whose side effects use it.
+export type { NotificationSink } from "../lib/invoice-state-machine";
 
 export interface InvoiceServiceDependencies {
   invoiceRepository: InvoiceRepositoryContract;
   ipfsService: IPFSService;
   dataSource?: DataSource;
-  /** Optional: enables `rejectInvoice` to notify the seller. If omitted,
-   *  rejection still persists the status/reason but skips notifying. */
+  /** Optional: lets status transitions notify the seller. If omitted,
+   *  transitions still persist but skip notifying. */
   notificationSink?: NotificationSink;
+  /** Optional: overrides the default state machine (mainly for tests). */
+  stateMachine?: InvoiceStateMachine;
 }
 
 export interface UploadDocumentInput {
@@ -99,6 +97,29 @@ export interface PublishInvoiceInput {
 export interface RejectInvoiceInput {
   invoiceId: string;
   rejectionReason: string;
+  /** Admin identifier recorded in the status history, when known. */
+  actorId?: string;
+}
+
+export interface SubmitInvoiceForReviewInput {
+  invoiceId: string;
+  sellerId: string;
+}
+
+export interface ApproveInvoiceInput {
+  invoiceId: string;
+  actorId?: string;
+}
+
+export interface InvoiceStatusHistoryDTO {
+  id: string;
+  fromStatus: InvoiceStatus;
+  toStatus: InvoiceStatus;
+  actorRole: string;
+  actorId: string | null;
+  trigger: string;
+  reason: string | null;
+  createdAt: Date;
 }
 
 export interface BatchPublishInvoicesInput {
@@ -154,34 +175,19 @@ export interface GetInvoicesOptions {
   take?: number;
 }
 
-/**
- * Valid state transitions for InvoiceStatus
- */
-const VALID_TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
-  [InvoiceStatus.DRAFT]: [InvoiceStatus.PENDING, InvoiceStatus.PUBLISHED, InvoiceStatus.CANCELLED],
-  [InvoiceStatus.PENDING]: [
-    InvoiceStatus.PUBLISHED,
-    InvoiceStatus.CANCELLED,
-    InvoiceStatus.REJECTED,
-  ],
-  [InvoiceStatus.PUBLISHED]: [InvoiceStatus.FUNDED, InvoiceStatus.CANCELLED],
-  [InvoiceStatus.FUNDED]: [InvoiceStatus.SETTLED, InvoiceStatus.CANCELLED],
-  [InvoiceStatus.SETTLED]: [],
-  [InvoiceStatus.CANCELLED]: [],
-  [InvoiceStatus.REJECTED]: [],
-};
-
 export class InvoiceService {
   private readonly invoiceRepository: InvoiceRepositoryContract;
   private readonly ipfsService: IPFSService;
   private readonly dataSource?: DataSource;
-  private readonly notificationSink?: NotificationSink;
+  private readonly stateMachine: InvoiceStateMachine;
 
   constructor(dependencies: InvoiceServiceDependencies) {
     this.invoiceRepository = dependencies.invoiceRepository;
     this.ipfsService = dependencies.ipfsService;
     this.dataSource = dependencies.dataSource;
-    this.notificationSink = dependencies.notificationSink;
+    this.stateMachine =
+      dependencies.stateMachine ??
+      createInvoiceStateMachine({ notificationSink: dependencies.notificationSink });
   }
 
   /**
@@ -223,10 +229,41 @@ export class InvoiceService {
   }
 
   /**
-   * Check if a status transition is valid
+   * Applies a status transition and its history row atomically, then runs
+   * the transition's side effects once the write has committed.
    */
-  private isValidTransition(from: InvoiceStatus, to: InvoiceStatus): boolean {
-    return VALID_TRANSITIONS[from]?.includes(to) ?? false;
+  private async applyTransition(
+    invoice: Invoice,
+    to: InvoiceStatus,
+    options: TransitionOptions
+  ): Promise<Invoice> {
+    let transition: InvoiceTransition;
+    if (this.dataSource) {
+      transition = await this.dataSource.transaction((manager) =>
+        this.stateMachine.transition(entityManagerTransitionStore(manager), invoice, to, options)
+      );
+    } else {
+      transition = await this.stateMachine.transition(
+        { saveInvoice: (entity) => this.invoiceRepository.save(entity) },
+        invoice,
+        to,
+        options
+      );
+    }
+
+    await this.stateMachine.dispatch(transition);
+    return transition.invoice;
+  }
+
+  private async findInvoiceWithSeller(invoiceId: string): Promise<Invoice> {
+    const invoice = await this.invoiceRepository.findOne({
+      where: { id: invoiceId },
+      relations: ["seller"],
+    });
+    if (!invoice) {
+      throw new ServiceError("invoice_not_found", "Invoice not found", 404);
+    }
+    return invoice;
   }
 
   /**
@@ -482,34 +519,11 @@ export class InvoiceService {
         );
       }
 
-      // Check if transition is valid
-      if (!this.isValidTransition(invoice.status, InvoiceStatus.PUBLISHED)) {
-        throw new ServiceError(
-          "invalid_status_transition",
-          `Cannot transition from ${invoice.status} to ${InvoiceStatus.PUBLISHED}`,
-          400
-        );
-      }
-
-      const validationErrors = validateInvoiceForPublish(invoice);
-      if (validationErrors.length > 0) {
-        throw new ServiceError(
-          "invoice_not_publishable",
-          `Invoice failed pre-publish validation: ${validationErrors.map((e) => e.message).join(" ")}`,
-          400,
-        );
-      }
-
-      const previousStatus = invoice.status;
-      invoice.status = InvoiceStatus.PUBLISHED;
-      const updated = await this.invoiceRepository.save(invoice);
-
-      logInvoiceTransition(logger, {
-        invoiceId: updated.id,
-        fromState: previousStatus,
-        toState: InvoiceStatus.PUBLISHED,
-        actorWallet: seller.stellarAddress,
-        reason: "seller_published",
+      // Graph, ownership and pre-publish validation are all enforced by the
+      // state machine.
+      const updated = await this.applyTransition(invoice, InvoiceStatus.PUBLISHED, {
+        actor: { role: "seller", id: input.sellerId, wallet: seller.stellarAddress },
+        trigger: "seller_published",
       });
 
       return this.toDTO(updated);
@@ -521,7 +535,8 @@ export class InvoiceService {
   }
 
   /**
-   * Reject an invoice (admin operation)
+   * Reject a draft or pending invoice (admin operation). The seller is
+   * notified by the state machine's side effects.
    */
   async rejectInvoice(input: RejectInvoiceInput): Promise<InvoiceDTO> {
     const invoiceId = input.invoiceId?.trim();
@@ -534,128 +549,85 @@ export class InvoiceService {
       throw new ServiceError("invalid_rejection_reason", "Rejection reason is required", 400);
     }
 
-    const invoice = await this.invoiceRepository.findOne({
-      where: { id: invoiceId },
-      relations: ["seller"],
-    });
-
-    if (!invoice) {
-      throw new ServiceError("invoice_not_found", "Invoice not found", 404);
-    }
+    const invoice = await this.findInvoiceWithSeller(invoiceId);
 
     if (invoice.status === InvoiceStatus.REJECTED) {
-      throw new ServiceError(
-        "invoice_already_rejected",
-        "Invoice has already been rejected",
-        409,
-      );
+      throw new ServiceError("invoice_already_rejected", "Invoice has already been rejected", 409);
     }
 
-    if (!this.isValidTransition(invoice.status, InvoiceStatus.REJECTED)) {
-      throw new ServiceError(
-        "invalid_status_transition",
-        `Cannot transition from ${invoice.status} to ${InvoiceStatus.PUBLISHED}`,
-        400
-      );
-    }
-
-    const validationErrors = validateInvoiceForPublish(invoice);
-    if (validationErrors.length > 0) {
-      throw new ServiceError(
-        "invoice_not_publishable",
-        `Invoice failed pre-publish validation: ${validationErrors.map((e) => e.message).join(" ")}`,
-        400
-        `Cannot transition invoice status from ${invoice.status} to ${InvoiceStatus.REJECTED}`,
-        409,
-      );
-    }
-
-    const previousStatus = invoice.status;
-    invoice.status = InvoiceStatus.REJECTED;
-    invoice.rejectionReason = rejectionReason;
-
-    const saved = await this.invoiceRepository.save(invoice);
-
-    const seller = invoice.seller as unknown as User;
-    logInvoiceTransition(logger, {
-      invoiceId: saved.id,
-      fromState: previousStatus,
-      toState: InvoiceStatus.REJECTED,
-      actorWallet: seller?.stellarAddress ?? "admin",
-      reason: "admin_rejected",
+    const updated = await this.applyTransition(invoice, InvoiceStatus.REJECTED, {
+      actor: { role: "admin", id: input.actorId ?? null },
+      trigger: "admin_rejected",
+      context: { reason: rejectionReason },
     });
 
-    if (this.notificationSink) {
-      await this.notificationSink.createNotification(
-        invoice.sellerId,
-        NotificationType.INVOICE,
-        "Invoice Rejected",
-        `Your invoice was rejected: ${rejectionReason}`,
-      );
-    }
-
-    return this.toDTO(saved);
+    return this.toDTO(updated);
   }
 
   /**
-   * Reject a pending invoice (admin action)
+   * Seller submits a draft for admin review (draft → pending).
    */
-  async rejectInvoice(input: { invoiceId: string; rejectionReason: string }): Promise<InvoiceDTO> {
-    const invoice = await this.invoiceRepository.findOne({
-      where: { id: input.invoiceId },
-      relations: ["seller"],
-    });
+  async submitInvoiceForReview(input: SubmitInvoiceForReviewInput): Promise<InvoiceDTO> {
+    const invoice = await this.findInvoiceWithSeller(input.invoiceId);
 
-    if (!invoice) {
+    if (invoice.sellerId !== input.sellerId) {
       throw new ServiceError("invoice_not_found", "Invoice not found", 404);
     }
 
-    // Check if already rejected
-    if (invoice.status === InvoiceStatus.REJECTED) {
-      throw new ServiceError("invoice_already_rejected", "Invoice is already rejected", 409);
-    }
-
-    // Check if transition is valid
-    if (!this.isValidTransition(invoice.status, InvoiceStatus.REJECTED)) {
-      throw new ServiceError(
-        "invalid_status_transition",
-        `Cannot transition from ${invoice.status} to ${InvoiceStatus.REJECTED}`,
-        409
-      );
-    }
-
-    const previousStatus = invoice.status;
-    invoice.status = InvoiceStatus.REJECTED;
-    invoice.rejectionReason = input.rejectionReason.trim();
-    const updated = await this.invoiceRepository.save(invoice);
-
-    const seller = invoice.seller as unknown as User;
-    logInvoiceTransition(logger, {
-      invoiceId: updated.id,
-      fromState: previousStatus,
-      toState: InvoiceStatus.REJECTED,
-      actorWallet: seller?.stellarAddress ?? "admin",
-      reason: "admin_rejected",
+    const seller = invoice.seller as unknown as User | undefined;
+    const updated = await this.applyTransition(invoice, InvoiceStatus.PENDING, {
+      actor: { role: "seller", id: input.sellerId, wallet: seller?.stellarAddress ?? null },
+      trigger: "seller_submitted",
     });
 
-    // Notify seller if notification sink is available
-    if (this.notificationSink && seller) {
-      try {
-        await this.notificationSink.createNotification(
-          seller.id,
-          NotificationType.INVOICE,
-          "Invoice Rejected",
-          `Your invoice ${invoice.invoiceNumber} has been rejected: ${input.rejectionReason}`
-        );
-      } catch (notifyError) {
-        logger.warn("Failed to notify seller of invoice rejection", {
-          error: notifyError,
-          invoiceId: invoice.id,
-        });
-      }
-    }
+    return this.toDTO(updated);
+  }
+
+  /**
+   * Admin approves an invoice under review, making it live (pending → published).
+   */
+  async approveInvoice(input: ApproveInvoiceInput): Promise<InvoiceDTO> {
+    const invoice = await this.findInvoiceWithSeller(input.invoiceId);
+
+    const updated = await this.applyTransition(invoice, InvoiceStatus.PUBLISHED, {
+      actor: { role: "admin", id: input.actorId ?? null },
+      trigger: "admin_approved",
+    });
 
     return this.toDTO(updated);
+  }
+
+  /**
+   * Status transition history for one of the seller's invoices, oldest first.
+   */
+  async getInvoiceStatusHistory(
+    invoiceId: string,
+    sellerId: string
+  ): Promise<InvoiceStatusHistoryDTO[]> {
+    const invoice = await this.invoiceRepository.findOne({ where: { id: invoiceId } });
+    if (!invoice || invoice.sellerId !== sellerId) {
+      throw new ServiceError("invoice_not_found", "Invoice not found", 404);
+    }
+
+    if (!this.dataSource) {
+      return [];
+    }
+
+    const rows = await this.dataSource.getRepository(InvoiceStatusHistory).find({
+      where: { invoiceId },
+      order: { createdAt: "ASC" },
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      fromStatus: row.fromStatus,
+      toStatus: row.toStatus,
+      actorRole: row.actorRole,
+      actorId: row.actorId,
+      trigger: row.trigger,
+      reason: row.reason,
+      createdAt: row.createdAt,
+    }));
   }
 
   /**
@@ -699,15 +671,6 @@ export class InvoiceService {
     // Batch fetch: single query with In(uniqueIds) avoids N round-trips
     let fetched: Array<{ invoiceId: string; invoice: Invoice | null }>;
     try {
-      fetched = await Promise.all(
-        uniqueIds.map(async (invoiceId) => ({
-          invoiceId,
-          invoice: await this.invoiceRepository.findOne({
-            where: { id: invoiceId },
-            relations: ["seller"],
-          }),
-        }))
-      );
       const invoices = await this.invoiceRepository.find({
         where: { id: In(uniqueIds) },
         relations: ["seller"],
@@ -788,24 +751,24 @@ export class InvoiceService {
     // Nothing is written until every invoice has passed, so a failure inside
     // the transaction rolls the whole batch back rather than leaving a partial
     // publish behind.
-    const saved = await this.dataSource.transaction(async (manager) => {
-      const results: Invoice[] = [];
-      for (const { invoice } of publishable) {
-        invoice.status = InvoiceStatus.PUBLISHED;
-        results.push(await manager.save(invoice));
+    const transitions = await this.dataSource.transaction(async (manager) => {
+      const store = entityManagerTransitionStore(manager);
+      const results: InvoiceTransition[] = [];
+      for (const { invoice, sellerWallet } of publishable) {
+        results.push(
+          await this.stateMachine.transition(store, invoice, InvoiceStatus.PUBLISHED, {
+            actor: { role: "seller", id: sellerId, wallet: sellerWallet },
+            trigger: "seller_batch_published",
+          })
+        );
       }
       return results;
     });
 
-    publishable.forEach(({ sellerWallet }, index) => {
-      logInvoiceTransition(logger, {
-        invoiceId: saved[index].id,
-        fromState: InvoiceStatus.DRAFT,
-        toState: InvoiceStatus.PUBLISHED,
-        actorWallet: sellerWallet,
-        reason: "seller_batch_published",
-      });
-    });
+    for (const transition of transitions) {
+      await this.stateMachine.dispatch(transition);
+    }
+    const saved = transitions.map((transition) => transition.invoice);
 
     return {
       published: saved.map((invoice) => this.toDTO(invoice)),
