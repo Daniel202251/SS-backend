@@ -1,7 +1,7 @@
-import rateLimit from "express-rate-limit";
-import type { Request as ExpressRequest } from "express";
+import rateLimit, { type Store } from "express-rate-limit";
+import type { NextFunction, Request as ExpressRequest, RequestHandler, Response } from "express";
 import type { AppLogger } from "../observability/logger";
-import { HttpError } from "../utils/http-error";
+import { AppError } from "../utils/http-error";
 
 export interface RateLimitOptions {
   windowMs: number;
@@ -9,6 +9,10 @@ export interface RateLimitOptions {
   message?: string;
   code?: string;
   keyGenerator?: (req: ExpressRequest) => string;
+  /** Use a shared store (for example Redis) when running more than one API replica. */
+  store?: Store;
+  /** Allow traffic when the shared store is unavailable. Defaults to fail-closed. */
+  failOpenOnStoreError?: boolean;
 }
 
 const DEFAULT_GLOBAL_LIMIT: RateLimitOptions = {
@@ -35,7 +39,16 @@ const DEFAULT_VERIFY_LIMIT: RateLimitOptions = {
 export function createRateLimitMiddleware(
   logger: AppLogger,
   options: RateLimitOptions = DEFAULT_GLOBAL_LIMIT
-) {
+): RequestHandler {
+  if (!Number.isSafeInteger(options.windowMs) || options.windowMs <= 0) {
+    throw new Error("Rate limit windowMs must be a positive integer.");
+  }
+  if (!Number.isSafeInteger(options.max) || options.max <= 0) {
+    throw new Error("Rate limit max must be a positive integer.");
+  }
+
+  const code = options.code ?? "RATE_LIMIT_EXCEEDED";
+  const message = options.message ?? "Too many requests, please try again later.";
   const limiter = rateLimit({
     windowMs: options.windowMs,
     max: options.max,
@@ -43,31 +56,62 @@ export function createRateLimitMiddleware(
     message: {
       success: false,
       error: {
-        code: options.code ?? "RATE_LIMIT_EXCEEDED",
-        message: options.message ?? "Too many requests, please try again later.",
+        code,
+        message,
       },
     },
-    standardHeaders: true,
+    standardHeaders: "draft-7",
     legacyHeaders: false,
-    validate: false,
-    handler: (req, res, next, nextOptions) => {
+    validate: true,
+    store: options.store,
+    passOnStoreError: false,
+    handler: (req, _res, next) => {
       logger.warn("Rate limit exceeded.", {
-        requestId: req.requestId,
+        requestId: (req as ExpressRequest & { requestId?: string }).requestId,
         method: req.method,
         path: req.path,
         ip: req.ip,
       });
 
-      const error = new HttpError(
-        429,
-        nextOptions?.message ?? "Too many requests, please try again later."
-      );
-
-      next(error);
+      next(new AppError(429, message, code));
     },
   });
 
-  return limiter;
+  return (req: ExpressRequest, res: Response, next: NextFunction) => {
+    limiter(req, res, (error?: unknown) => {
+      if (!error) {
+        next();
+        return;
+      }
+
+      if (error instanceof AppError) {
+        next(error);
+        return;
+      }
+
+      logger.error("Rate limit store failed.", {
+        requestId: (req as ExpressRequest & { requestId?: string }).requestId,
+        method: req.method,
+        path: req.path,
+        store: options.store?.constructor?.name ?? "unknown",
+        error: error instanceof Error ? error.message : "Unknown rate limit store error",
+        failOpen: options.failOpenOnStoreError === true,
+      });
+
+      if (options.failOpenOnStoreError) {
+        next();
+        return;
+      }
+
+      next(
+        new AppError(
+          503,
+          "Request throttling is temporarily unavailable. Please try again later.",
+          "RATE_LIMIT_STORE_UNAVAILABLE"
+        )
+      );
+    });
+  };
 }
 
 export function createChallengeRateLimitMiddleware(logger: AppLogger) {
