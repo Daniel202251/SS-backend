@@ -66,6 +66,12 @@ export interface AppConfig {
   admin: {
     ipWhitelist: string[];
   };
+  cache: {
+    redisUrl?: string;
+    invoicesListTtlSeconds: number;
+    invoiceDetailTtlSeconds: number;
+    enabled: boolean;
+  };
 }
 
 // ---------------- DEFAULTS ----------------
@@ -74,6 +80,10 @@ const DEFAULT_PORT = 3000;
 const DEFAULT_JWT_EXPIRES_IN = "15m";
 const DEFAULT_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_METRICS_ENABLED = true;
+
+const DEFAULT_CACHE_ENABLED = true;
+const DEFAULT_CACHE_TTL_INVOICES_LIST = 30; // 30 seconds
+const DEFAULT_CACHE_TTL_INVOICE_DETAIL = 60; // 60 seconds
 
 const DEFAULT_RECONCILIATION_ENABLED = false;
 const DEFAULT_RECONCILIATION_INTERVAL_MS = 30 * 1000;
@@ -294,6 +304,21 @@ export function getConfig(): AppConfig {
 
     admin: {
       ipWhitelist: parseCsv(process.env.ADMIN_IP_WHITELIST),
+    },
+
+    cache: {
+      redisUrl: process.env.REDIS_URL || undefined,
+      invoicesListTtlSeconds: parsePositiveInteger(
+        process.env.CACHE_TTL_INVOICES_LIST,
+        DEFAULT_CACHE_TTL_INVOICES_LIST,
+        "CACHE_TTL_INVOICES_LIST"
+      ),
+      invoiceDetailTtlSeconds: parsePositiveInteger(
+        process.env.CACHE_TTL_INVOICE_DETAIL,
+        DEFAULT_CACHE_TTL_INVOICE_DETAIL,
+        "CACHE_TTL_INVOICE_DETAIL"
+      ),
+      enabled: parseBoolean(process.env.CACHE_ENABLED, DEFAULT_CACHE_ENABLED, "CACHE_ENABLED"),
     },
   };
 }
