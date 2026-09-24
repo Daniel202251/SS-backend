@@ -67,10 +67,17 @@ export function authenticateJWT(req: Request, _res: Response, next: NextFunction
 
   const token = authHeader.slice(7);
 
-  try {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) throw new Error("JWT_SECRET missing");
+  // A missing JWT_SECRET is a server misconfiguration, not a client auth
+  // failure — checked outside the try/catch below so it can never be
+  // reported as a 401 "invalid token" (#387). It also isn't a per-request
+  // dependency on `token`, so there's no need to re-check it on every call.
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    next(new AppError(500, "Server authentication is misconfigured.", "JWT_SECRET_MISSING"));
+    return;
+  }
 
+  try {
     const payload = jwt.verify(token, secret) as AuthTokenPayload;
 
     (req as AuthenticatedRequest).user = {
