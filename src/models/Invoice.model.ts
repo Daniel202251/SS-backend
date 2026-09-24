@@ -9,6 +9,7 @@ import {
   OneToMany,
   JoinColumn,
   Index,
+  VersionColumn,
 } from "typeorm";
 import Decimal from "decimal.js";
 import { InvoiceStatus } from "../types/enums";
@@ -124,6 +125,9 @@ export class Invoice {
 
   @DeleteDateColumn({ name: "deleted_at" })
   deletedAt!: Date | null;
+
+  @VersionColumn()
+  version!: number;
 
   @ManyToOne("User", "invoices", { onDelete: "CASCADE", eager: false })
   @JoinColumn({ name: "seller_id" })
