@@ -52,6 +52,14 @@ Required for a normal local boot:
 | `IPFS_API_URL` | Pinning API endpoint                                   |
 | `IPFS_JWT`     | Pinning service credential                             |
 
+Useful operational settings:
+
+| Variable          | Purpose                                                                     | Default                       |
+| ----------------- | --------------------------------------------------------------------------- | ----------------------------- |
+| `LOG_LEVEL`       | Winston log verbosity (`error`, `warn`, `info`, `debug`)                     | `info` (`silent` in tests)    |
+| `METRICS_ENABLED` | Exposes `GET /metrics` (Prometheus) when `true`                              | `true`                        |
+| `PORT`            | HTTP port                                                                   | `3000`                        |
+
 Security-sensitive operational settings include `TRUST_PROXY`,
 `CORS_ALLOWED_ORIGINS`, `ADMIN_IP_WHITELIST`, and the `RATE_LIMIT_*` values.
 Only enable `TRUST_PROXY` when requests arrive through a trusted proxy; Express
@@ -94,7 +102,17 @@ All application routes use the `/api/v1` prefix.
 - `/api/v1/admin` — allowlisted administrative operations
 
 The checked-in OpenAPI contract is [`docs/openapi.json`](./docs/openapi.json).
-Feature-specific references are available under [`docs/`](./docs/).
+Feature-specific references are available under [`docs/`](./docs/):
+
+| Doc | Covers |
+| --- | ------ |
+| [`docs/MARKETPLACE_API.md`](./docs/MARKETPLACE_API.md) | Public invoice discovery API |
+| [`docs/INVOICE_LIFECYCLE.md`](./docs/INVOICE_LIFECYCLE.md) | Invoice state machine |
+| [`docs/INVOICE_DOCUMENT_UPLOAD.md`](./docs/INVOICE_DOCUMENT_UPLOAD.md) | Document upload flow |
+| [`docs/INVOICE_INVEST_API.md`](./docs/INVOICE_INVEST_API.md) | Fractional investment flow |
+| [`docs/SOROBAN_INTEGRATION_GUIDE.md`](./docs/SOROBAN_INTEGRATION_GUIDE.md) | Escrow/funding integration |
+| [`docs/DB_WORKFLOW.md`](./docs/DB_WORKFLOW.md) | Migration workflow |
+| [`docs/IPFS.md`](./docs/IPFS.md) | IPFS pinning details |
 
 ## Architecture
 
@@ -125,6 +143,61 @@ schema changes must be represented by migrations. See
 - The reconciliation worker is disabled by default. Run one worker replica unless distributed locking is added.
 
 See [`SECURITY.md`](./SECURITY.md) for private vulnerability reporting.
+
+## Environment variable groups
+
+[`.env.example`](./.env.example) is the canonical list, grouped by domain:
+
+| Group | Variables |
+| ----- | --------- |
+| Server | `PORT`, `NODE_ENV` |
+| HTTP security | `TRUST_PROXY`, `CORS_ORIGIN`, `CORS_ALLOWED_ORIGINS`, `CORS_ALLOW_CREDENTIALS`, `HTTP_BODY_SIZE_LIMIT`, `HTTP_SHUTDOWN_TIMEOUT_MS` |
+| Rate limiting | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX` |
+| Database | `DATABASE_URL` |
+| Stellar | `STELLAR_NETWORK`, `STELLAR_HORIZON_URL`, `STELLAR_USDC_ASSET_CODE`, `STELLAR_USDC_ASSET_ISSUER`, `STELLAR_ESCROW_PUBLIC_KEY`, `STELLAR_VERIFY_ALLOWED_AMOUNT_DELTA`, `STELLAR_VERIFY_RETRY_ATTEMPTS`, `STELLAR_VERIFY_RETRY_BASE_DELAY_MS`, `PLATFORM_SECRET_KEY` |
+| Smart contracts | `ESCROW_CONTRACT_ID`, `TOKEN_CONTRACT_ID`, and the Soroban escrow variables from the [integration guide](./docs/SOROBAN_INTEGRATION_GUIDE.md) |
+| IPFS | `IPFS_API_URL`, `IPFS_JWT`, `IPFS_MAX_FILE_SIZE_MB`, `IPFS_ALLOWED_MIME_TYPES`, `IPFS_UPLOAD_RATE_LIMIT_*` |
+| Auth | `JWT_SECRET`, `JWT_EXPIRES_IN`, `AUTH_CHALLENGE_TTL_MS` |
+| Observability | `LOG_LEVEL`, `METRICS_ENABLED` |
+| Background reconciliation | `STELLAR_RECONCILIATION_*` |
+| Email | `SENDGRID_API_KEY`, `FROM_EMAIL` |
+| Admin | `ADMIN_API_KEY`, `ADMIN_IP_WHITELIST` |
+
+## Troubleshooting quick reference
+
+Detailed guidance lives in [`DEVELOPMENT.md`](./DEVELOPMENT.md); the common
+failures:
+
+| Symptom | Likely cause / fix |
+| ------- | ------------------ |
+| `npm ci` rejects the lockfile | Use Node 22 + npm 10 and reinstall with the committed lockfile (`npm ci`), not `npm install`. |
+| Server exits at startup with a configuration error | Startup validation fails on missing/placeholder values — complete `.env` (see the table above). |
+| Database connection or migration failure | Check `DATABASE_URL`, ensure PostgreSQL 14+ is reachable, then `npm run db:migrate`. |
+| Unexpected `429` responses | Global rate limiting (100 req/min default) — raise `RATE_LIMIT_MAX` locally or wait out the window. |
+| Jest hangs after tests finish | Known open-handle issue — run `npm run test:ci` which passes `--forceExit`. |
+
+Full guidance: [`DEVELOPMENT.md`](./DEVELOPMENT.md) (§ Troubleshooting).
+
+## Logging and observability
+
+Logs are structured JSON, written by the [`src/observability/logger.ts`](./src/observability/logger.ts)
+module.
+
+- **Verbosity** — set `LOG_LEVEL` (`error`, `warn`, `info`, or `debug`). It
+  defaults to `info`, and to `silent` when `NODE_ENV=test` so test output stays
+  clean. Suppressed levels cost nothing: their log calls short-circuit before
+  any metadata processing.
+- **Correlation IDs** — every log line emitted while handling an HTTP request
+  is stamped with that request's correlation ID by the request-observability
+  middleware, so service-level logs join to the HTTP access log.
+- **Redaction** — the log pipeline redacts Stellar secret keys, JWTs, Bearer
+  headers, and values under sensitive keys (`password`, `secret`, `token`,
+  `authorization`, …) before anything reaches a transport.
+- **Resilience** — a failing transport or formatter emits a fallback error
+  line instead of crashing the request handler; oversized metadata is
+  bounded so runaway callers cannot inflate log lines.
+- **Health endpoints** — `GET /health` (liveness), `GET /health/db`
+  (database), and `GET /metrics` (Prometheus, only when `METRICS_ENABLED=true`).
 
 ## Contributing
 
