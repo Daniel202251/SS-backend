@@ -1,4 +1,9 @@
-import { DataSource, EntityManager, OptimisticLockVersionMismatchError } from "typeorm";
+import {
+  DataSource,
+  EntityManager,
+  OptimisticLockVersionMismatchError,
+  QueryFailedError,
+} from "typeorm";
 import { Invoice } from "../models/Invoice.model";
 import { Investment } from "../models/Investment.model";
 import { InvoiceStatus, InvestmentStatus } from "../types/enums";
@@ -13,6 +18,7 @@ import {
 import type { InvestmentNotifier } from "../lib/invoice-notifications";
 import { logger } from "../observability/logger";
 import { stroopsToXlm } from "../lib/stellar-format";
+import { truncateWalletAddress } from "../lib/kyc";
 
 // Formula for expected return:
 // Investor's share of the invoice face value (amount) proportional to their contribution to the fundable amount (netAmount).
@@ -24,6 +30,65 @@ export interface CreateInvestmentInput {
   investorId: string;
   investmentAmount: string;
   investorWallet: string;
+}
+
+export interface InvestInInvoiceInput {
+  invoiceId: string;
+  investorId: string;
+  /** Stellar address the investment is made from; must be the investor's own. */
+  walletAddress: string;
+  amount: string;
+  /**
+   * Ledger the investment's payment targets. Defaults to the current
+   * server-side funding window (one Stellar ledger close interval).
+   */
+  ledgerSequence?: number;
+}
+
+export interface InvoiceFundingState {
+  invoiceId: string;
+  status: InvoiceStatus;
+  targetAmount: string;
+  fundedAmount: string;
+  remainingCapacity: string;
+  fundedPercent: string;
+  version: number;
+}
+
+export interface InvestInInvoiceResult {
+  investment: Investment;
+  funding: InvoiceFundingState;
+}
+
+/** Approximate Stellar ledger close time, used to bucket requests without a ledger. */
+export const FUNDING_WINDOW_MS = 5_000;
+
+function currentFundingWindow(now = Date.now()): number {
+  return Math.floor(now / FUNDING_WINDOW_MS);
+}
+
+/** Raised when the conditional funded_amount update loses a race; retried. */
+class FundingConflictError extends Error {
+  constructor() {
+    super("Invoice was modified concurrently");
+    this.name = "FundingConflictError";
+  }
+}
+
+function duplicateInvestmentError(fundingBlock: string): ServiceError {
+  return new ServiceError(
+    "DUPLICATE_INVESTMENT",
+    "This wallet has already invested in this invoice within the same block",
+    409,
+    { fundingBlock }
+  );
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  if (!(error instanceof QueryFailedError)) return false;
+  const code = (error.driverError as { code?: string } | undefined)?.code;
+  // 23505: Postgres unique_violation; SQLITE_CONSTRAINT for local sqlite runs.
+  return code === "23505" || code === "SQLITE_CONSTRAINT";
 }
 
 export interface InvestorDashboard {
@@ -283,6 +348,214 @@ export class InvestmentService {
   }
 
   /**
+   * Buys a fractional share of a published invoice (POST /invoices/:id/invest).
+   *
+   * Over-funding is prevented at three levels:
+   *  1. the remaining capacity is checked against the invoice as read;
+   *  2. funded_amount is advanced with a single conditional UPDATE that only
+   *     matches if the invoice's version is unchanged since that read
+   *     (optimistic lock) and the new total still fits within net_amount;
+   *  3. a CHECK constraint on invoices rejects funded_amount > net_amount.
+   * A concurrent writer makes the UPDATE match no rows; the attempt is then
+   * retried from a fresh read, where it either fits or is rejected for
+   * insufficient capacity.
+   *
+   * The funded_amount update, the investment row and (when the invoice
+   * fills up) the transition to FUNDED share one transaction.
+   */
+  async investInInvoice(input: InvestInInvoiceInput): Promise<InvestInInvoiceResult> {
+    const { invoiceId, investorId, walletAddress } = input;
+
+    let amount: Decimal;
+    try {
+      amount = new Decimal(input.amount);
+    } catch {
+      throw new ServiceError("INVALID_AMOUNT", "Investment amount must be a number", 400);
+    }
+    if (!amount.isFinite() || amount.lte(0)) {
+      throw new ServiceError("INVALID_AMOUNT", "Investment amount must be greater than zero", 400);
+    }
+    if (amount.decimalPlaces() > 4) {
+      throw new ServiceError(
+        "INVALID_AMOUNT",
+        "Investment amount supports at most 4 decimal places",
+        400
+      );
+    }
+
+    const fundingBlock = String(input.ledgerSequence ?? currentFundingWindow());
+    const MAX_ATTEMPTS = 3;
+
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const { investment, invoice, fundedAmount, fundedTransition } =
+          await this.dataSource.transaction(async (manager: EntityManager) => {
+            const invoice = await manager.findOne(Invoice, { where: { id: invoiceId } });
+            if (!invoice) {
+              throw new ServiceError("INVOICE_NOT_FOUND", "Invoice not found", 404);
+            }
+
+            if (invoice.status !== InvoiceStatus.PUBLISHED) {
+              throw new ServiceError(
+                "INVOICE_NOT_OPEN_FOR_INVESTMENT",
+                `Cannot invest in an invoice with status ${invoice.status}`,
+                422
+              );
+            }
+            if (invoice.dueDate && new Date(invoice.dueDate) < new Date()) {
+              throw new ServiceError(
+                "invoice_expired",
+                "Invoice has passed its due date and is no longer accepting investments",
+                422
+              );
+            }
+            if (invoice.sellerId === investorId) {
+              throw new ServiceError(
+                "SELF_DEALING",
+                "Investors cannot invest in their own invoices",
+                403
+              );
+            }
+
+            const netAmount = new Decimal(invoice.netAmount);
+            const funded = new Decimal(invoice.fundedAmount ?? 0);
+            const remaining = Decimal.max(netAmount.minus(funded), 0);
+            if (amount.gt(remaining)) {
+              throw new ServiceError(
+                "INSUFFICIENT_CAPACITY",
+                `Investment amount ${amount.toFixed(4)} exceeds remaining capacity ${remaining.toFixed(4)}`,
+                422,
+                { remainingCapacity: remaining.toFixed(4) }
+              );
+            }
+
+            const duplicate = await manager.findOne(Investment, {
+              where: { invoiceId, investorWallet: walletAddress, fundingBlock },
+            });
+            if (duplicate) {
+              throw duplicateInvestmentError(fundingBlock);
+            }
+
+            const update = await manager
+              .createQueryBuilder()
+              .update(Invoice)
+              .set({
+                fundedAmount: () => "funded_amount + :amount",
+                version: () => "version + 1",
+              })
+              .where("id = :id", { id: invoiceId })
+              .andWhere("version = :version", { version: invoice.version })
+              .andWhere("status = :status", { status: InvoiceStatus.PUBLISHED })
+              .andWhere("funded_amount + :amount <= net_amount")
+              .setParameter("amount", amount.toFixed(4))
+              .execute();
+
+            if (update.affected !== 1) {
+              throw new FundingConflictError();
+            }
+
+            const newFunded = funded.plus(amount);
+            // Keep the in-memory entity in step with the row just written, so
+            // the FUNDED save below neither reverts funded_amount nor trips
+            // the version check.
+            invoice.fundedAmount = newFunded.toFixed(4);
+            invoice.version += 1;
+
+            const expectedReturn = amount
+              .times(new Decimal(invoice.amount).dividedBy(netAmount))
+              .toDecimalPlaces(4);
+
+            let investment: Investment;
+            try {
+              investment = await manager.save(
+                Investment,
+                manager.create(Investment, {
+                  invoiceId,
+                  investorId,
+                  investorWallet: walletAddress,
+                  fundingBlock,
+                  investmentAmount: amount.toFixed(4),
+                  expectedReturn: expectedReturn.toFixed(4),
+                  status: InvestmentStatus.PENDING,
+                })
+              );
+            } catch (error) {
+              // Two identical requests can both pass the duplicate check
+              // above; the unique index decides which one wins.
+              if (isUniqueViolation(error)) {
+                throw duplicateInvestmentError(fundingBlock);
+              }
+              throw error;
+            }
+
+            let fundedTransition: InvoiceTransition | null = null;
+            if (newFunded.gte(netAmount)) {
+              fundedTransition = await this.stateMachine.transition(
+                entityManagerTransitionStore(manager),
+                invoice,
+                InvoiceStatus.FUNDED,
+                {
+                  actor: { role: "system", wallet: walletAddress },
+                  trigger: "fully_funded",
+                  context: { fundedAmount: newFunded.toFixed(4) },
+                }
+              );
+            }
+
+            return { investment, invoice, fundedAmount: newFunded, fundedTransition };
+          });
+
+        logger.info("investment.committed", {
+          investment_id: investment.id,
+          invoice_id: invoiceId,
+          investor_wallet: truncateWalletAddress(walletAddress),
+          amount_xlm: stroopsToXlm(BigInt(amount.times(10_000_000).toFixed(0))),
+          funding_block: fundingBlock,
+          attempt,
+        });
+
+        await this.investmentNotifier?.investmentCreated({ invoice, investment });
+        if (fundedTransition) {
+          await this.stateMachine.dispatch(fundedTransition);
+        }
+
+        const netAmount = new Decimal(invoice.netAmount);
+        return {
+          investment,
+          funding: {
+            invoiceId,
+            status: invoice.status,
+            targetAmount: netAmount.toFixed(4),
+            fundedAmount: fundedAmount.toFixed(4),
+            remainingCapacity: Decimal.max(netAmount.minus(fundedAmount), 0).toFixed(4),
+            fundedPercent: fundedAmount.dividedBy(netAmount).times(100).toFixed(2),
+            version: invoice.version,
+          },
+        };
+      } catch (error) {
+        const conflict =
+          error instanceof FundingConflictError ||
+          error instanceof OptimisticLockVersionMismatchError;
+        if (!conflict) throw error;
+
+        if (attempt >= MAX_ATTEMPTS) {
+          logger.warn("Optimistic lock retry exhausted for invoice investment", {
+            invoiceId,
+            investorId,
+            attempt,
+          });
+          throw new ServiceError(
+            "CONCURRENT_INVESTMENT_CONFLICT",
+            "Unable to process investment due to concurrent modifications. Please retry.",
+            409
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25 * attempt));
+      }
+    }
+  }
+
+  /**
    * Creates a new investment commitment for an invoice.
    * Uses a database transaction with a row-level lock on the invoice to prevent over-subscription.
    * Implements optimistic locking retry logic to handle concurrent investment attempts.
@@ -379,6 +652,7 @@ export class InvestmentService {
           const investment = transactionalEntityManager.create(Investment, {
             invoiceId,
             investorId,
+            investorWallet,
             investmentAmount: amount.toFixed(4),
             expectedReturn: expectedReturn.toFixed(4),
             status: InvestmentStatus.PENDING,
@@ -404,6 +678,10 @@ export class InvestmentService {
 
           // 9. Transition invoice to FUNDED if fully subscribed
           const newTotalInvested = totalInvested.plus(amount);
+          // Keep funded_amount in step with this path too, so it and
+          // POST /invoices/:id/invest agree on remaining capacity. The row is
+          // locked above, so the plain save is safe here.
+          invoice.fundedAmount = newTotalInvested.toFixed(4);
           let fundedTransition: InvoiceTransition | null = null;
           if (newTotalInvested.gte(netAmount)) {
             fundedTransition = await this.stateMachine.transition(
@@ -416,6 +694,8 @@ export class InvestmentService {
                 context: { fundedAmount: newTotalInvested.toFixed(4) },
               }
             );
+          } else {
+            await transactionalEntityManager.save(Invoice, invoice);
           }
 
           return { savedInvestment, invoice, fundedTransition };

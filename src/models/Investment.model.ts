@@ -16,6 +16,9 @@ import type { User } from "./User.model";
 import type { Invoice } from "./Invoice.model";
 
 @Entity("investments")
+@Index("uq_investments_invoice_wallet_block", ["invoiceId", "investorWallet", "fundingBlock"], {
+  unique: true,
+})
 export class Investment {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -44,6 +47,18 @@ export class Investment {
   })
   @Index("idx_investments_status")
   status!: InvestmentStatus;
+
+  /** Stellar address the investment was made from. */
+  @Column({ name: "investor_wallet", type: "varchar", length: 56, nullable: true })
+  investorWallet!: string | null;
+
+  /**
+   * Ledger the investment belongs to; with investorWallet it makes a
+   * duplicate submission within one block a unique-index violation.
+   * bigint columns are returned as strings.
+   */
+  @Column({ name: "funding_block", type: "bigint", nullable: true })
+  fundingBlock!: string | null;
 
   @Column({ name: "transaction_hash", type: "varchar", length: 64, nullable: true })
   transactionHash!: string | null;

@@ -91,6 +91,13 @@ export class Invoice {
   @Column({ name: "net_amount", type: "decimal", precision: 18, scale: 4, default: 0 })
   netAmount!: string;
 
+  /**
+   * Total committed by investors so far. Only changed through atomic,
+   * version-checked updates, and capped at netAmount by a CHECK constraint.
+   */
+  @Column({ name: "funded_amount", type: "decimal", precision: 18, scale: 4, default: 0 })
+  fundedAmount!: string;
+
   @Column({ name: "due_date", type: "date" })
   @Index("idx_invoices_due_date")
   dueDate!: Date;

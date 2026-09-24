@@ -188,10 +188,6 @@ export function createApp({
     app.use("/api/v1/notifications", createNotificationRouter(notificationService, authService));
   }
 
-  if (invoiceService && config) {
-    app.use("/api/v1/invoices", createInvoiceRouter({ invoiceService, config }));
-  }
-
   // The emergency pause guard only has something to check when a Soroban
   // contract and an RPC endpoint are both configured; otherwise the routers
   // mount without it and behave exactly as before.
@@ -201,6 +197,20 @@ export function createApp({
     pauseGuardRpcUrl && pauseGuardContractId
       ? createContractGuardService({ rpcUrl: pauseGuardRpcUrl })
       : undefined;
+
+  if (invoiceService && config) {
+    app.use(
+      "/api/v1/invoices",
+      createInvoiceRouter({
+        invoiceService,
+        config,
+        investmentService,
+        authService,
+        contractGuardService,
+        contractId: pauseGuardContractId,
+      })
+    );
+  }
 
   if (investmentService) {
     app.use(

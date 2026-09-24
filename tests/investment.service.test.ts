@@ -65,7 +65,8 @@ describe("InvestmentService", () => {
     expect(result.investmentAmount).toBe("475.0000");
     // expectedReturn = 475 * (1000 / 950) = 475 * 1.0526315789 = 500
     expect(result.expectedReturn).toBe("500.0000");
-    expect(mockEntityManager.save).toHaveBeenCalledTimes(1); // Only save investment
+    expect(mockEntityManager.save).toHaveBeenCalledTimes(2); // Investment, and invoice funded_amount
+    expect(mockInvoice.fundedAmount).toBe("475.0000");
   });
 
   it("should transition invoice to FUNDED when fully subscribed", async () => {

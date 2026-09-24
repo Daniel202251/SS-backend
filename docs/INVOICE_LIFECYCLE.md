@@ -117,5 +117,6 @@ Authenticated users read their notifications through:
 | `POST /api/v1/invoices/batch-publish`     | draft → published (all or nothing)                        |
 | `POST /api/v1/admin/invoices/:id/approve` | pending → published                                       |
 | `POST /api/v1/admin/invoices/:id/reject`  | draft / pending → rejected                                |
+| `POST /api/v1/invoices/:id/invest`        | published → funded, when the investment fills the invoice |
 | `POST /api/v1/investments`                | published → funded, when the investment completes funding |
 | `POST /api/v1/settlements/:invoiceId`     | funded → settled                                          |
