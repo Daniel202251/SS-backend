@@ -12,27 +12,120 @@ export interface AppLogger {
   child(metadata: LogMetadata): AppLogger;
 }
 
+/** Maximum metadata nesting depth before values are truncated (issue #406). */
+const MAX_METADATA_DEPTH = 8;
+
+/** Marker used for values removed by the metadata sanitizer. */
+const MAX_DEPTH_PLACEHOLDER = "[MaxDepth]";
+const CIRCULAR_PLACEHOLDER = "[Circular]";
+
+/**
+ * Make a single value safe for the JSON formatter winston applies to every
+ * log line. Anything JSON cannot represent — circular structures, Error
+ * instances, bigints, functions, symbols — is replaced with a stable,
+ * readable stand-in instead of throwing at emission time.
+ */
+function sanitizeValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
+  if (value === null) return null;
+
+  const type = typeof value;
+  if (type === "string") return value;
+  if (type === "number" || type === "boolean") return value;
+  if (type === "bigint") return `${value}n`;
+  if (type === "function") return "[Function]";
+  if (type === "symbol") return String(value);
+  if (type === "undefined") return undefined;
+
+  if (value instanceof Error) {
+    return { name: value.name, message: value.message, stack: value.stack };
+  }
+
+  if (depth <= 0) return MAX_DEPTH_PLACEHOLDER;
+
+  const asObject = value as object;
+  if (seen.has(asObject)) return CIRCULAR_PLACEHOLDER;
+  seen.add(asObject);
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeValue(item, depth - 1, seen));
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = sanitizeValue(item, depth - 1, seen);
+  }
+  return out;
+}
+
+/**
+ * Sanitize log metadata so winston's JSON formatter can always serialize it.
+ *
+ * Handles the edge cases that previously crashed emission (and therefore the
+ * calling request handler): circular references, `Error` values handed in as
+ * metadata (their `message`/`stack` are preserved as plain fields),
+ * bigints, functions and symbols, and values nested too deeply.
+ *
+ * Redaction is intentionally NOT done here — it stays downstream in
+ * {@link redactionFormat} so the two passes compose.
+ */
+export function sanitizeLogMetadata(metadata: LogMetadata | undefined): LogMetadata {
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+    // A malformed call argument must never take the process down.
+    return {};
+  }
+
+  try {
+    return sanitizeValue(metadata, MAX_METADATA_DEPTH, new WeakSet()) as LogMetadata;
+  } catch {
+    return { metadata: "[Unserializable log metadata]" };
+  }
+}
+
 class WinstonAppLogger implements AppLogger {
   constructor(private readonly baseLogger: winston.Logger) {}
 
-  debug(message: string, metadata: LogMetadata = {}): void {
-    this.baseLogger.debug(message, metadata);
+  debug(message: string, metadata?: LogMetadata): void {
+    this.safeEmit("debug", message, metadata);
   }
 
   info(message: string, metadata: LogMetadata = {}): void {
-    this.baseLogger.info(message, metadata);
+    this.safeEmit("info", message, metadata);
   }
 
   warn(message: string, metadata: LogMetadata = {}): void {
-    this.baseLogger.warn(message, metadata);
+    this.safeEmit("warn", message, metadata);
   }
 
   error(message: string, metadata: LogMetadata = {}): void {
-    this.baseLogger.error(message, metadata);
+    this.safeEmit("error", message, metadata);
   }
 
   child(metadata: LogMetadata): AppLogger {
-    return new WinstonAppLogger(this.baseLogger.child(metadata));
+    return new WinstonAppLogger(this.baseLogger.child(sanitizeLogMetadata(metadata)));
+  }
+
+  /**
+   * Emit one log line without ever throwing out to the caller: a failing
+   * transport or formatter must not cascade into a 500. If even the fallback
+   * emission fails, the error is swallowed — logging can never be the reason
+   * a request fails.
+   */
+  private safeEmit(level: "debug" | "info" | "warn" | "error", message: string, metadata?: LogMetadata): void {
+    try {
+      const text = typeof message === "string" ? message : String(message);
+      this.baseLogger[level](text, sanitizeLogMetadata(metadata));
+    } catch (emissionError) {
+      try {
+        const reason =
+          emissionError instanceof Error ? emissionError.message : String(emissionError);
+        this.baseLogger.error("Log emission failed; original entry dropped.", {
+          failedLevel: level,
+          reason,
+        });
+      } catch {
+        // Last-resort guard: nothing more can be done safely here.
+      }
+    }
   }
 }
 
