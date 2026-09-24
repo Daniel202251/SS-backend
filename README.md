@@ -52,6 +52,14 @@ Required for a normal local boot:
 | `IPFS_API_URL` | Pinning API endpoint                                   |
 | `IPFS_JWT`     | Pinning service credential                             |
 
+Useful operational settings:
+
+| Variable          | Purpose                                                                     | Default                       |
+| ----------------- | --------------------------------------------------------------------------- | ----------------------------- |
+| `LOG_LEVEL`       | Winston log verbosity (`error`, `warn`, `info`, `debug`)                     | `info` (`silent` in tests)    |
+| `METRICS_ENABLED` | Exposes `GET /metrics` (Prometheus) when `true`                              | `true`                        |
+| `PORT`            | HTTP port                                                                   | `3000`                        |
+
 Security-sensitive operational settings include `TRUST_PROXY`,
 `CORS_ALLOWED_ORIGINS`, `ADMIN_IP_WHITELIST`, and the `RATE_LIMIT_*` values.
 Only enable `TRUST_PROXY` when requests arrive through a trusted proxy; Express
@@ -125,6 +133,27 @@ schema changes must be represented by migrations. See
 - The reconciliation worker is disabled by default. Run one worker replica unless distributed locking is added.
 
 See [`SECURITY.md`](./SECURITY.md) for private vulnerability reporting.
+
+## Logging and observability
+
+Logs are structured JSON, written by the [`src/observability/logger.ts`](./src/observability/logger.ts)
+module.
+
+- **Verbosity** — set `LOG_LEVEL` (`error`, `warn`, `info`, or `debug`). It
+  defaults to `info`, and to `silent` when `NODE_ENV=test` so test output stays
+  clean. Suppressed levels cost nothing: their log calls short-circuit before
+  any metadata processing.
+- **Correlation IDs** — every log line emitted while handling an HTTP request
+  is stamped with that request's correlation ID by the request-observability
+  middleware, so service-level logs join to the HTTP access log.
+- **Redaction** — the log pipeline redacts Stellar secret keys, JWTs, Bearer
+  headers, and values under sensitive keys (`password`, `secret`, `token`,
+  `authorization`, …) before anything reaches a transport.
+- **Resilience** — a failing transport or formatter emits a fallback error
+  line instead of crashing the request handler; oversized metadata is
+  bounded so runaway callers cannot inflate log lines.
+- **Health endpoints** — `GET /health` (liveness), `GET /health/db`
+  (database), and `GET /metrics` (Prometheus, only when `METRICS_ENABLED=true`).
 
 ## Contributing
 
