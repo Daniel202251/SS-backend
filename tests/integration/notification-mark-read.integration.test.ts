@@ -41,6 +41,22 @@ function createFakeNotificationRepository(): NotificationRepositoryContract & {
       return notif as import("../../src/models/Notification.model").Notification;
     },
 
+    async createMany(entries) {
+      for (const entry of entries) {
+        store.push({ id: crypto.randomUUID(), read: false, timestamp: new Date(), ...entry });
+      }
+    },
+
+    async markAllRead(userId) {
+      const unread = store.filter((n) => n.userId === userId && !n.read);
+      unread.forEach((n) => (n.read = true));
+      return unread.length;
+    },
+
+    async countUnread(userId) {
+      return store.filter((n) => n.userId === userId && !n.read).length;
+    },
+
     async findByIdAndUserId(id, userId) {
       return (store.find((n) => n.id === id && n.userId === userId) ?? null) as
         | import("../../src/models/Notification.model").Notification

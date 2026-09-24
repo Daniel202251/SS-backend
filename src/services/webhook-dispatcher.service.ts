@@ -3,6 +3,7 @@ import { DataSource } from "typeorm";
 import { WebhookSubscription } from "../models/WebhookSubscription.model";
 import { WebhookDeliveryLog } from "../models/WebhookDeliveryLog.model";
 import { logger, type AppLogger } from "../observability/logger";
+import { withCorrelationHeaders } from "../observability/request-context";
 
 export function generateWebhookSignature(payload: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(payload).digest("hex");
@@ -77,11 +78,11 @@ export class WebhookDispatcherService {
         const timer = setTimeout(() => controller.abort(), 5000);
         const response = await fetch(subscription.url, {
           method: "POST",
-          headers: {
+          headers: withCorrelationHeaders({
             "content-type": "application/json",
             "x-signature": generateWebhookSignature(body, subscription.secret),
             ...(eventId ? { "x-event-id": eventId } : {}),
-          },
+          }),
           body,
           signal: controller.signal,
         });

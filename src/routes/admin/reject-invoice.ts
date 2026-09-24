@@ -43,7 +43,11 @@ export async function rejectInvoice(
       });
     }
 
-    const result = await invoiceService.rejectInvoice({ invoiceId: id, rejectionReason });
+    const result = await invoiceService.rejectInvoice({
+      invoiceId: id,
+      rejectionReason,
+      actorId: "admin",
+    });
 
     logger.info("Admin invoice rejection decision", {
       invoice_id: id,
@@ -55,7 +59,7 @@ export async function rejectInvoice(
   } catch (err: unknown) {
     if (err instanceof ServiceError) {
       return res.status(err.statusCode).json({
-        error: { code: err.code, message: err.message },
+        error: { code: err.code, message: err.message, details: err.details },
       });
     }
 

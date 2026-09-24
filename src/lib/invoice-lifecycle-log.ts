@@ -3,8 +3,12 @@ import { truncateWalletAddress } from "./kyc";
 import type { InvoiceStatus } from "../types/enums";
 
 export type InvoiceTransitionReason =
+  | "seller_submitted"
   | "seller_published"
   | "seller_batch_published"
+  | "seller_cancelled"
+  | "admin_approved"
+  | "admin_cancelled"
   | "fully_funded"
   | "admin_settled"
   | "admin_rejected";

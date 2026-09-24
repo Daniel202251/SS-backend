@@ -8,8 +8,11 @@ import { Transaction } from "../models/Transaction.model";
 import { ServiceError } from "../utils/service-error";
 import { computeInvestorReturn } from "../lib/investor-return";
 import { decimalStringToScaledBigInt, scaledBigIntToDecimalString } from "../lib/decimal-bigint";
-import { logInvoiceTransition } from "../lib/invoice-lifecycle-log";
-import { logSettlementCompletion } from "../lib/settlement-completion-log";
+import {
+  createInvoiceStateMachine,
+  entityManagerTransitionStore,
+  type InvoiceStateMachine,
+} from "../lib/invoice-state-machine";
 import { logger } from "../observability/logger";
 import {
   logSettlementStart,
@@ -54,7 +57,8 @@ export class SettlementService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly paymentDistributor?: PaymentDistributorContractService,
-    private readonly distributorConfig?: PaymentDistributorSettlementConfig
+    private readonly distributorConfig?: PaymentDistributorSettlementConfig,
+    private readonly stateMachine: InvoiceStateMachine = createInvoiceStateMachine()
   ) {}
 
   /**
@@ -70,11 +74,14 @@ export class SettlementService {
     }
 
     const startedAt = Date.now();
-    const startedAtIso = new Date(startedAt).toISOString();
-    logSettlementStart(logger, { invoiceId, actorWallet, startedAt: startedAtIso });
+    logSettlementStart(logger, {
+      invoiceId,
+      actorWallet,
+      startedAt: new Date(startedAt).toISOString(),
+    });
 
     try {
-      return await this.dataSource.transaction(
+      const { result, transition, proceedsScaled } = await this.dataSource.transaction(
         async (transactionalEntityManager: EntityManager) => {
           // 1. Lock the invoice row for update (if supported by the driver).
           //    SQLite does not support row-level locking, so we fall back to a plain read.
@@ -92,13 +99,9 @@ export class SettlementService {
               .getOne();
           }
 
-      // 2. Validate invoice status
-      if (invoice.status !== InvoiceStatus.FUNDED) {
-        throw new ServiceError(
-          "INVALID_INVOICE_STATUS",
-          `INVALID_INVOICE_STATUS: Cannot settle an invoice with status ${invoice.status}`
-        );
-      }
+          if (!invoice) {
+            throw new ServiceError("INVOICE_NOT_FOUND", "Invoice not found", 404);
+          }
 
           // 2. Validate invoice status
           if (invoice.status !== InvoiceStatus.FUNDED) {
@@ -108,92 +111,130 @@ export class SettlementService {
             );
           }
 
-      if (investments.length === 0) {
-        throw new ServiceError(
-          "NO_CONFIRMED_INVESTMENTS",
-          "Invoice has no confirmed investments to settle"
-        );
-      }
+          // 3. Find confirmed investments backing this invoice
+          const investments = await transactionalEntityManager.find(Investment, {
+            where: { invoiceId: invoice.id, status: InvestmentStatus.CONFIRMED },
+            relations: { investor: true },
+          });
 
-      // 4. Distribute proceeds pro-rata to each investor's share of the total funded amount
-      const totalFunded = investments.reduce(
-        (sum, investment) => sum.plus(new Decimal(investment.investmentAmount)),
-        new Decimal(0)
-      );
-      const totalFundedScaled = decimalStringToScaledBigInt(totalFunded.toFixed(4));
-      const proceedsScaled = decimalStringToScaledBigInt(proceeds.toFixed(4));
-      const feeScaled = this.distributorConfig
-        ? (proceedsScaled * BigInt(this.distributorConfig.feeBps)) / 10_000n
-        : 0n;
-      const distributableScaled = proceedsScaled - feeScaled;
-      const settlements: InvestorSettlement[] = [];
-      let distributionTransactionHash: string | undefined;
+          if (investments.length === 0) {
+            throw new ServiceError(
+              "NO_CONFIRMED_INVESTMENTS",
+              "Invoice has no confirmed investments to settle"
+            );
+          }
 
-      if (this.paymentDistributor) {
-        if (!this.distributorConfig) {
-          throw new ServiceError(
-            "DISTRIBUTOR_CONFIGURATION_MISSING",
-            "Payment distributor fee configuration is required"
+          // 4. Distribute proceeds pro-rata to each investor's share of the total funded amount
+          const totalFunded = investments.reduce(
+            (sum, investment) => sum.plus(new Decimal(investment.investmentAmount)),
+            new Decimal(0)
           );
+          const totalFundedScaled = decimalStringToScaledBigInt(totalFunded.toFixed(4));
+          const proceedsScaled = decimalStringToScaledBigInt(proceeds.toFixed(4));
+          const feeScaled = this.distributorConfig
+            ? (proceedsScaled * BigInt(this.distributorConfig.feeBps)) / 10_000n
+            : 0n;
+          const distributableScaled = proceedsScaled - feeScaled;
+          const settlements: InvestorSettlement[] = [];
+          let distributionTransactionHash: string | undefined;
+
+          if (this.paymentDistributor) {
+            if (!this.distributorConfig) {
+              throw new ServiceError(
+                "DISTRIBUTOR_CONFIGURATION_MISSING",
+                "Payment distributor fee configuration is required"
+              );
+            }
+            const distribution = await this.paymentDistributor.distributePayouts({
+              invoiceId: invoice.id,
+              totalAmountStroops: proceedsScaled * DECIMAL_SCALE_TO_STROOP_FACTOR,
+              feeRecipient: this.distributorConfig.feeRecipient,
+              feeBps: this.distributorConfig.feeBps,
+              recipients: investments.map((investment) => ({
+                address: investment.investor?.stellarAddress ?? investment.investorId,
+                amountStroops:
+                  computeInvestorReturn(
+                    decimalStringToScaledBigInt(investment.investmentAmount),
+                    totalFundedScaled,
+                    distributableScaled
+                  ) * DECIMAL_SCALE_TO_STROOP_FACTOR,
+              })),
+            });
+            distributionTransactionHash = distribution.transactionHash;
+            await transactionalEntityManager.save(
+              Transaction,
+              transactionalEntityManager.create(Transaction, {
+                userId: invoice.sellerId,
+                invoiceId: invoice.id,
+                investmentId: null,
+                type: TransactionType.PAYMENT,
+                amount: proceeds.toFixed(4),
+                stellarTxHash: distribution.transactionHash,
+                stellarOperationIndex: 0,
+                status: TransactionStatus.COMPLETED,
+              })
+            );
+          }
+
+          for (const investment of investments) {
+            const investmentAmountScaled = decimalStringToScaledBigInt(investment.investmentAmount);
+            const actualReturnScaled = computeInvestorReturn(
+              investmentAmountScaled,
+              totalFundedScaled,
+              distributableScaled
+            );
+
+            investment.actualReturn = scaledBigIntToDecimalString(actualReturnScaled);
+            investment.status = InvestmentStatus.SETTLED;
+            await transactionalEntityManager.save(Investment, investment);
+
+            settlements.push({
+              investmentId: investment.id,
+              investorId: investment.investorId,
+              investmentAmount: investment.investmentAmount,
+              actualReturn: investment.actualReturn,
+            });
+          }
+
+          // 5. Transition invoice to SETTLED (history row written in this transaction)
+          const transition = await this.stateMachine.transition(
+            entityManagerTransitionStore(transactionalEntityManager),
+            invoice,
+            InvoiceStatus.SETTLED,
+            { actor: { role: "system", wallet: actorWallet }, trigger: "admin_settled" }
+          );
+
+          return {
+            transition,
+            proceedsScaled,
+            result: {
+              invoiceId: invoice.id,
+              status: InvoiceStatus.SETTLED as const,
+              proceeds: proceeds.toFixed(4),
+              settlements,
+              distributionTransactionHash,
+            },
+          };
         }
-        const distribution = await this.paymentDistributor.distributePayouts({
-          invoiceId: invoice.id,
-          totalAmountStroops: proceedsScaled * DECIMAL_SCALE_TO_STROOP_FACTOR,
-          feeRecipient: this.distributorConfig.feeRecipient,
-          feeBps: this.distributorConfig.feeBps,
-          recipients: investments.map((investment) => ({
-            address: investment.investor?.stellarAddress ?? investment.investorId,
-            amountStroops:
-              computeInvestorReturn(
-                decimalStringToScaledBigInt(investment.investmentAmount),
-                totalFundedScaled,
-                distributableScaled
-              ) * DECIMAL_SCALE_TO_STROOP_FACTOR,
-          })),
-        });
-        distributionTransactionHash = distribution.transactionHash;
-        await transactionalEntityManager.save(
-          Transaction,
-          transactionalEntityManager.create(Transaction, {
-            userId: invoice.sellerId,
-            invoiceId: invoice.id,
-            investmentId: null,
-            type: TransactionType.PAYMENT,
-            amount: proceeds.toFixed(4),
-            stellarTxHash: distribution.transactionHash,
-            stellarOperationIndex: 0,
-            status: TransactionStatus.COMPLETED,
-          })
-        );
-      }
+      );
 
-      for (const investment of investments) {
-        const investmentAmountScaled = decimalStringToScaledBigInt(investment.investmentAmount);
-        const actualReturnScaled = computeInvestorReturn(
-          investmentAmountScaled,
-          totalFundedScaled,
-          distributableScaled
-        );
+      await this.stateMachine.dispatch(transition);
 
-        investment.actualReturn = scaledBigIntToDecimalString(actualReturnScaled);
-        investment.status = InvestmentStatus.SETTLED;
-        await transactionalEntityManager.save(Investment, investment);
+      logSettlementSuccess(logger, {
+        invoiceId: result.invoiceId,
+        totalProceedsStroops: proceedsScaled * DECIMAL_SCALE_TO_STROOP_FACTOR,
+        investorCount: result.settlements.length,
+        durationMs: Date.now() - startedAt,
+        distributionTxHash: result.distributionTransactionHash ?? null,
+      });
 
-        settlements.push({
-          investmentId: investment.id,
-          investorId: investment.investorId,
-          investmentAmount: investment.investmentAmount,
-          actualReturn: investment.actualReturn,
-        });
-      }
-
+      return result;
+    } catch (err) {
       logSettlementFailure(logger, {
         invoiceId,
         error: err,
-        durationMs,
-        distributionTxHash: undefined,
-        category,
-        retryable,
+        durationMs: Date.now() - startedAt,
+        category: err instanceof ServiceError ? err.code : undefined,
       });
 
       throw err;
@@ -204,7 +245,8 @@ export class SettlementService {
 export function createSettlementService(
   dataSource: DataSource,
   paymentDistributor?: PaymentDistributorContractService,
-  distributorConfig?: PaymentDistributorSettlementConfig
+  distributorConfig?: PaymentDistributorSettlementConfig,
+  stateMachine?: InvoiceStateMachine
 ): SettlementService {
-  return new SettlementService(dataSource, paymentDistributor, distributorConfig);
+  return new SettlementService(dataSource, paymentDistributor, distributorConfig, stateMachine);
 }

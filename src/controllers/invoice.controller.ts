@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import type { InvoiceService } from "../services/invoice.service";
-import { HttpError } from "../utils/http-error";
+import { HttpError, PublicAppError } from "../utils/http-error";
 import { ServiceError } from "../utils/service-error";
 import { AuthenticatedRequest } from "../types/auth";
 import { InvoiceStatus } from "@/types/enums";
@@ -56,6 +56,23 @@ export interface BatchPublishInvoicesRequest extends AuthenticatedRequest {
   body: {
     invoiceIds: string[];
   };
+}
+
+const TRANSITION_ERROR_CODES = new Set([
+  "invalid_status_transition",
+  "transition_not_permitted",
+  "transition_precondition_failed",
+  "invoice_not_publishable",
+]);
+
+/**
+ * State machine rejections carry the from/to statuses and the allowed next
+ * statuses; surface them as a structured error instead of a bare message.
+ */
+function toTransitionError(error: ServiceError): PublicAppError | null {
+  return TRANSITION_ERROR_CODES.has(error.code)
+    ? new PublicAppError(error.statusCode, error.message, error.code.toUpperCase(), error.details)
+    : null;
 }
 
 export function createInvoiceController(invoiceService: InvoiceService) {
@@ -254,6 +271,53 @@ export function createInvoiceController(invoiceService: InvoiceService) {
       }
     },
 
+    async submitInvoiceForReview(
+      req: PublishInvoiceRequest,
+      res: Response,
+      next: NextFunction
+    ): Promise<void> {
+      try {
+        if (!req.user) {
+          throw new HttpError(401, "Authentication required");
+        }
+
+        const result = await invoiceService.submitInvoiceForReview({
+          invoiceId: req.params.id,
+          sellerId: req.user.id,
+        });
+
+        res.status(200).json({ success: true, data: result });
+      } catch (error) {
+        if (error instanceof ServiceError) {
+          next(toTransitionError(error) ?? new HttpError(error.statusCode, error.message));
+          return;
+        }
+        next(error);
+      }
+    },
+
+    async getInvoiceStatusHistory(
+      req: PublishInvoiceRequest,
+      res: Response,
+      next: NextFunction
+    ): Promise<void> {
+      try {
+        if (!req.user) {
+          throw new HttpError(401, "Authentication required");
+        }
+
+        const history = await invoiceService.getInvoiceStatusHistory(req.params.id, req.user.id);
+
+        res.status(200).json({ success: true, data: history });
+      } catch (error) {
+        if (error instanceof ServiceError) {
+          next(new HttpError(error.statusCode, error.message));
+          return;
+        }
+        next(error);
+      }
+    },
+
     async publishInvoice(
       req: PublishInvoiceRequest,
       res: Response,
@@ -277,6 +341,11 @@ export function createInvoiceController(invoiceService: InvoiceService) {
         });
       } catch (error) {
         if (error instanceof ServiceError) {
+          const transitionError = toTransitionError(error);
+          if (transitionError) {
+            next(transitionError);
+            return;
+          }
           if (error.statusCode === 403) {
             // Return 404 instead of 403 to prevent info leakage
             next(new HttpError(404, "Invoice not found"));

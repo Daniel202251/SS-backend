@@ -1,11 +1,17 @@
-import { Router, Request, Response, NextFunction } from "express";
+import { Router, Request, Response, NextFunction, type RequestHandler } from "express";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import Joi from "joi";
 import type { InvoiceService } from "../services/invoice.service";
 import type { AppConfig } from "../config/env";
 import { createInvoiceController } from "../controllers/invoice.controller";
-import { authenticateJWT, requireKYC } from "../middleware/auth.middleware";
+import { createInvoiceInvestmentController } from "../controllers/invoice-investment.controller";
+import { authenticateJWT, createAuthMiddleware, requireKYC } from "../middleware/auth.middleware";
+import { checkContractNotPaused } from "../middleware/contract-pause-guard.middleware";
+import type { AuthService } from "../services/auth.service";
+import type { InvestmentService } from "../services/investment.service";
+import type { ContractGuardService } from "../services/stellar/contract-guard.service";
+import { isValidStellarPublicKey } from "../utils/stellar-address.utils";
 import { createWalletRateLimiter } from "../middleware/rate-limit-wallet.middleware";
 import { HttpError } from "../utils/http-error";
 import { InvoiceStatus } from "../types/enums";
@@ -13,6 +19,11 @@ import { InvoiceStatus } from "../types/enums";
 export interface InvoiceRouterDependencies {
   invoiceService: InvoiceService;
   config: AppConfig;
+  /** Both required to mount POST /:id/invest. */
+  investmentService?: InvestmentService;
+  authService?: AuthService;
+  contractGuardService?: ContractGuardService;
+  contractId?: string | null;
 }
 
 /**
@@ -112,6 +123,29 @@ const calculateTermsSchema = Joi.object({
   referenceDate: Joi.date().iso().optional(),
 });
 
+const investSchema = Joi.object({
+  walletAddress: Joi.string()
+    .trim()
+    .required()
+    .custom((value, helpers) =>
+      isValidStellarPublicKey(value) ? value : helpers.error("any.invalid")
+    )
+    .messages({ "any.invalid": "walletAddress must be a valid Stellar public key" }),
+  amount: Joi.alternatives()
+    .try(
+      Joi.string()
+        .trim()
+        .pattern(/^\d+(\.\d{1,4})?$/),
+      Joi.number().positive()
+    )
+    .required()
+    .custom((value) => String(value))
+    .messages({
+      "alternatives.match": "amount must be a positive decimal with at most 4 decimal places",
+    }),
+  ledgerSequence: Joi.number().integer().min(1).optional(),
+});
+
 /**
  * Validation middleware factory
  */
@@ -151,7 +185,14 @@ function validateQuery(schema: Joi.Schema) {
   };
 }
 
-export function createInvoiceRouter({ invoiceService, config }: InvoiceRouterDependencies): Router {
+export function createInvoiceRouter({
+  invoiceService,
+  config,
+  investmentService,
+  authService,
+  contractGuardService,
+  contractId = null,
+}: InvoiceRouterDependencies): Router {
   const router = Router();
   const controller = createInvoiceController(invoiceService);
 
@@ -242,6 +283,12 @@ export function createInvoiceRouter({ invoiceService, config }: InvoiceRouterDep
     controller.publishInvoice
   );
 
+  // POST /api/v1/invoices/:id/submit - Submit a draft for admin review (draft → pending)
+  router.post("/:id/submit", authenticateJWT, kycGating, controller.submitInvoiceForReview);
+
+  // GET /api/v1/invoices/:id/history - Status transition history, oldest first
+  router.get("/:id/history", authenticateJWT, controller.getInvoiceStatusHistory);
+
   // POST /api/v1/invoices/:id/document - Upload document
   router.post(
     "/:id/document",
@@ -251,6 +298,29 @@ export function createInvoiceRouter({ invoiceService, config }: InvoiceRouterDep
     upload.single("document"),
     controller.uploadDocument
   );
+
+  // POST /api/v1/invoices/:id/invest - Buy a fractional share of an invoice.
+  // Same gating as POST /api/v1/investments: full user lookup (for KYC),
+  // contract pause guard and the per-wallet investment rate limit.
+  if (investmentService && authService) {
+    const investController = createInvoiceInvestmentController(investmentService);
+    const pauseGuard: RequestHandler[] = contractGuardService
+      ? [checkContractNotPaused({ contractGuardService, contractId })]
+      : [];
+    const investRateLimiter = createWalletRateLimiter(
+      { windowMs: 60_000, maxRequests: 10 },
+      "invoice-invest"
+    );
+
+    router.post(
+      "/:id/invest",
+      createAuthMiddleware(authService),
+      ...pauseGuard,
+      investRateLimiter,
+      validateBody(investSchema),
+      investController.invest as RequestHandler
+    );
+  }
 
   // GET /api/v1/invoices/:id/tokens - Get invoice token holders
   router.get("/:id/tokens", authenticateJWT, controller.getInvoiceTokenHolders);

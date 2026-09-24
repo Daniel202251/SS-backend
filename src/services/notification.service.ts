@@ -2,6 +2,7 @@ import { DataSource, Repository } from "typeorm";
 import { Notification } from "../models/Notification.model";
 import { NotificationType } from "../types/enums";
 import { HttpError } from "../utils/http-error";
+import type { NotificationInput } from "../lib/invoice-notifications";
 
 export interface NotificationPage {
   data: Notification[];
@@ -25,6 +26,8 @@ export interface ListNotificationsOptions {
   cursor?: string | null;
 }
 
+export type { NotificationInput };
+
 export interface NotificationRepositoryContract {
   create(
     userId: string,
@@ -32,8 +35,13 @@ export interface NotificationRepositoryContract {
     title: string,
     message: string
   ): Promise<Notification>;
+  /** Inserts all entries in a single statement. */
+  createMany(entries: NotificationInput[]): Promise<void>;
   findByIdAndUserId(id: string, userId: string): Promise<Notification | null>;
   markRead(id: string, userId: string): Promise<Notification>;
+  /** Marks every unread notification of the user as read in one statement; returns how many changed. */
+  markAllRead(userId: string): Promise<number>;
+  countUnread(userId: string): Promise<number>;
   list(options: ListNotificationsOptions): Promise<NotificationPage>;
 }
 
@@ -56,6 +64,15 @@ export class NotificationService {
     return this.notificationRepository.create(userId, type, title, message);
   }
 
+  /**
+   * Creates several notifications at once, e.g. one per investor when an
+   * invoice they funded settles.
+   */
+  async createNotifications(entries: NotificationInput[]): Promise<void> {
+    if (entries.length === 0) return;
+    await this.notificationRepository.createMany(entries);
+  }
+
   async listNotifications(options: ListNotificationsOptions): Promise<NotificationPage> {
     return this.notificationRepository.list(options);
   }
@@ -76,6 +93,14 @@ export class NotificationService {
 
     return this.notificationRepository.markRead(notificationId, userId);
   }
+
+  async markAllNotificationsRead(userId: string): Promise<{ updated: number }> {
+    return { updated: await this.notificationRepository.markAllRead(userId) };
+  }
+
+  async getUnreadCount(userId: string): Promise<{ unread: number }> {
+    return { unread: await this.notificationRepository.countUnread(userId) };
+  }
 }
 
 class TypeOrmNotificationRepository implements NotificationRepositoryContract {
@@ -91,8 +116,24 @@ class TypeOrmNotificationRepository implements NotificationRepositoryContract {
     return this.repository.save(entity);
   }
 
+  async createMany(entries: NotificationInput[]): Promise<void> {
+    await this.repository.insert(entries);
+  }
+
   findByIdAndUserId(id: string, userId: string): Promise<Notification | null> {
     return this.repository.findOne({ where: { id, userId } });
+  }
+
+  async markAllRead(userId: string): Promise<number> {
+    // A single UPDATE, so concurrent requests can't leave a partially-read
+    // set behind and notifications created mid-request are either all
+    // included or untouched.
+    const result = await this.repository.update({ userId, read: false }, { read: true });
+    return result.affected ?? 0;
+  }
+
+  countUnread(userId: string): Promise<number> {
+    return this.repository.count({ where: { userId, read: false } });
   }
 
   async markRead(id: string, userId: string): Promise<Notification> {

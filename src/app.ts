@@ -103,6 +103,17 @@ export function createApp({
     app.set("trust proxy", http.trustProxy);
   }
 
+  // Registered first so every request, including ones rejected by helmet,
+  // CORS, the KYC webhook router or a rate limiter, is logged and carries a
+  // correlation ID.
+  app.use(
+    createRequestObservabilityMiddleware({
+      logger: appLogger,
+      metricsEnabled,
+      metricsRegistry,
+    })
+  );
+
   app.use(helmet());
 
   app.use(
@@ -131,19 +142,8 @@ export function createApp({
         : undefined,
     });
   }
-  app.use(
-    createRequestObservabilityMiddleware({
-      logger: appLogger,
-      metricsEnabled,
-      metricsRegistry,
-    })
-  );
-
   app.get("/health", (req, res) => {
-    const requestId =
-      (req.headers["x-request-id"] as string) || (req as RequestWithId).requestId || "unknown";
-
-    res.setHeader("x-request-id", requestId);
+    const requestId = (req as RequestWithId).requestId ?? "unknown";
 
     res.status(200).json({
       success: true,
@@ -188,10 +188,6 @@ export function createApp({
     app.use("/api/v1/notifications", createNotificationRouter(notificationService, authService));
   }
 
-  if (invoiceService && config) {
-    app.use("/api/v1/invoices", createInvoiceRouter({ invoiceService, config }));
-  }
-
   // The emergency pause guard only has something to check when a Soroban
   // contract and an RPC endpoint are both configured; otherwise the routers
   // mount without it and behave exactly as before.
@@ -201,6 +197,20 @@ export function createApp({
     pauseGuardRpcUrl && pauseGuardContractId
       ? createContractGuardService({ rpcUrl: pauseGuardRpcUrl })
       : undefined;
+
+  if (invoiceService && config) {
+    app.use(
+      "/api/v1/invoices",
+      createInvoiceRouter({
+        invoiceService,
+        config,
+        investmentService,
+        authService,
+        contractGuardService,
+        contractId: pauseGuardContractId,
+      })
+    );
+  }
 
   if (investmentService) {
     app.use(

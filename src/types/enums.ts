@@ -58,4 +58,7 @@ export enum NotificationType {
   KYC = "kyc",
   SYSTEM = "system",
   INVOICE_REJECTED = "invoice_rejected",
+  INVOICE_FUNDED = "invoice_funded",
+  INVOICE_SETTLED = "invoice_settled",
+  INVESTMENT_CREATED = "investment_created",
 }

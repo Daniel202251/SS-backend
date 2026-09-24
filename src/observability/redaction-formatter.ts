@@ -8,29 +8,53 @@ const JWT_PATTERN = /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]
 
 const BEARER_PATTERN = /Bearer\s+[A-Za-z0-9_\-.~+/]+=*/g;
 
-const SENSITIVE_KEY_NAMES = new Set([
-  "password",
-  "secret",
-  "secretKey",
-  "secret_key",
-  "privateKey",
-  "private_key",
-  "platformSecretKey",
-  "PLATFORM_SECRET_KEY",
-  "jwt",
-  "token",
-  "accessToken",
-  "access_token",
-  "refreshToken",
-  "refresh_token",
-  "authorization",
-  "auth",
-  "credential",
-  "credentials",
-  "apiKey",
-  "api_key",
-  "seed",
-]);
+// Compared after normalising the key (lowercased, "-" and "_" removed), so
+// "Authorization", "x-admin-key" and "wallet_secret_key" all match regardless
+// of how the caller spelled them.
+const SENSITIVE_KEY_NAMES = new Set(
+  [
+    "password",
+    "secret",
+    "secretKey",
+    "privateKey",
+    "platformSecretKey",
+    "jwt",
+    "token",
+    "accessToken",
+    "refreshToken",
+    "idToken",
+    "authorization",
+    "proxyAuthorization",
+    "auth",
+    "cookie",
+    "setCookie",
+    "credential",
+    "credentials",
+    "apiKey",
+    "adminKey",
+    "xAdminKey",
+    "xApiKey",
+    "seed",
+    "seedPhrase",
+    "mnemonic",
+    "passphrase",
+    "walletKey",
+    "walletSecret",
+    "walletSecretKey",
+    "walletPrivateKey",
+    "signingKey",
+    "signature",
+    "xSignature",
+  ].map(normalizeKey)
+);
+
+function normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[-_]/g, "");
+}
+
+export function isSensitiveKey(key: string): boolean {
+  return SENSITIVE_KEY_NAMES.has(normalizeKey(key));
+}
 
 function redactStringValue(value: string): string {
   let result = value;
@@ -44,7 +68,7 @@ function redactObjectValues(obj: Record<string, unknown>): Record<string, unknow
   const redacted: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(obj)) {
-    if (SENSITIVE_KEY_NAMES.has(key)) {
+    if (isSensitiveKey(key)) {
       redacted[key] = "[REDACTED]";
     } else if (typeof value === "string") {
       redacted[key] = redactStringValue(value);
@@ -71,17 +95,23 @@ export function redactionFormat(): winston.Logform.Format {
       info.message = redactStringValue(info.message);
     }
 
-    const { level, message, timestamp, stack, ...rest } = info as Record<string, unknown>;
+    const {
+      level: _level,
+      message: _message,
+      timestamp: _timestamp,
+      stack: _stack,
+      ...rest
+    } = info as Record<string, unknown>;
 
-    const redactedMeta = redactObjectValues(rest);
+    // Redact in place rather than returning a rebuilt object: winston keeps
+    // the entry's level under Symbol.for("level"), and redactObjectValues
+    // (built on Object.entries) drops symbol keys. Losing it made every
+    // transport filter every entry out, so nothing was ever logged.
+    for (const [key, value] of Object.entries(redactObjectValues(rest))) {
+      (info as Record<string, unknown>)[key] = value;
+    }
 
-    return {
-      level,
-      message,
-      timestamp,
-      stack,
-      ...redactedMeta,
-    } as winston.Logform.TransformableInfo;
+    return info;
   })();
 }
 

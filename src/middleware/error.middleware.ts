@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import type { AppLogger } from "../observability/logger";
 
-import { AppError, HttpError } from "../utils/http-error";
+import { AppError, HttpError, PublicAppError } from "../utils/http-error";
 import type { AuthFailureDetails } from "../lib/auth-failure";
 
 export function notFoundMiddleware(_req: Request, _res: Response, next: NextFunction) {
@@ -16,6 +16,9 @@ export function createErrorMiddleware(logger: AppLogger) {
         error: {
           code: error.code,
           message: error.message,
+          ...(error instanceof PublicAppError && error.details !== undefined
+            ? { details: error.details }
+            : {}),
         },
       });
 

@@ -24,6 +24,12 @@ export function createNotificationRouter(
   // Query params: page, limit, read (true|false), type (NotificationType), sort (asc|desc)
   router.get("/", controller.list);
 
+  // GET /api/v1/notifications/unread-count
+  router.get("/unread-count", controller.unreadCount);
+
+  // PATCH /api/v1/notifications/read-all
+  router.patch("/read-all", controller.markAllRead);
+
   // PATCH /api/v1/notifications/:id/read
   router.patch("/:id/read", controller.markRead);
 

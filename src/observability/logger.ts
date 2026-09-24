@@ -1,5 +1,6 @@
 import winston from "winston";
 import { redactionFormat } from "./redaction-formatter";
+import { getCorrelationId } from "./request-context";
 
 export type LogMetadata = Record<string, unknown>;
 
@@ -35,6 +36,19 @@ class WinstonAppLogger implements AppLogger {
   }
 }
 
+/**
+ * Stamps every log line written while handling a request with that request's
+ * correlation ID, so service-level logs can be joined to the HTTP access log
+ * without each call site passing the ID along.
+ */
+export const correlationIdFormat = winston.format((info) => {
+  const correlationId = getCorrelationId();
+  if (correlationId && info.correlationId === undefined) {
+    info.correlationId = correlationId;
+  }
+  return info;
+});
+
 function createBaseLogger(): winston.Logger {
   return winston.createLogger({
     level: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === "test" ? "silent" : "info"),
@@ -42,6 +56,7 @@ function createBaseLogger(): winston.Logger {
       service: "stellarsettle-api",
     },
     format: winston.format.combine(
+      correlationIdFormat(),
       redactionFormat(),
       winston.format.timestamp(),
       winston.format.errors({ stack: true }),
