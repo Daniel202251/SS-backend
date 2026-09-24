@@ -102,7 +102,17 @@ All application routes use the `/api/v1` prefix.
 - `/api/v1/admin` — allowlisted administrative operations
 
 The checked-in OpenAPI contract is [`docs/openapi.json`](./docs/openapi.json).
-Feature-specific references are available under [`docs/`](./docs/).
+Feature-specific references are available under [`docs/`](./docs/):
+
+| Doc | Covers |
+| --- | ------ |
+| [`docs/MARKETPLACE_API.md`](./docs/MARKETPLACE_API.md) | Public invoice discovery API |
+| [`docs/INVOICE_LIFECYCLE.md`](./docs/INVOICE_LIFECYCLE.md) | Invoice state machine |
+| [`docs/INVOICE_DOCUMENT_UPLOAD.md`](./docs/INVOICE_DOCUMENT_UPLOAD.md) | Document upload flow |
+| [`docs/INVOICE_INVEST_API.md`](./docs/INVOICE_INVEST_API.md) | Fractional investment flow |
+| [`docs/SOROBAN_INTEGRATION_GUIDE.md`](./docs/SOROBAN_INTEGRATION_GUIDE.md) | Escrow/funding integration |
+| [`docs/DB_WORKFLOW.md`](./docs/DB_WORKFLOW.md) | Migration workflow |
+| [`docs/IPFS.md`](./docs/IPFS.md) | IPFS pinning details |
 
 ## Architecture
 
@@ -133,6 +143,40 @@ schema changes must be represented by migrations. See
 - The reconciliation worker is disabled by default. Run one worker replica unless distributed locking is added.
 
 See [`SECURITY.md`](./SECURITY.md) for private vulnerability reporting.
+
+## Environment variable groups
+
+[`.env.example`](./.env.example) is the canonical list, grouped by domain:
+
+| Group | Variables |
+| ----- | --------- |
+| Server | `PORT`, `NODE_ENV` |
+| HTTP security | `TRUST_PROXY`, `CORS_ORIGIN`, `CORS_ALLOWED_ORIGINS`, `CORS_ALLOW_CREDENTIALS`, `HTTP_BODY_SIZE_LIMIT`, `HTTP_SHUTDOWN_TIMEOUT_MS` |
+| Rate limiting | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX` |
+| Database | `DATABASE_URL` |
+| Stellar | `STELLAR_NETWORK`, `STELLAR_HORIZON_URL`, `STELLAR_USDC_ASSET_CODE`, `STELLAR_USDC_ASSET_ISSUER`, `STELLAR_ESCROW_PUBLIC_KEY`, `STELLAR_VERIFY_ALLOWED_AMOUNT_DELTA`, `STELLAR_VERIFY_RETRY_ATTEMPTS`, `STELLAR_VERIFY_RETRY_BASE_DELAY_MS`, `PLATFORM_SECRET_KEY` |
+| Smart contracts | `ESCROW_CONTRACT_ID`, `TOKEN_CONTRACT_ID`, and the Soroban escrow variables from the [integration guide](./docs/SOROBAN_INTEGRATION_GUIDE.md) |
+| IPFS | `IPFS_API_URL`, `IPFS_JWT`, `IPFS_MAX_FILE_SIZE_MB`, `IPFS_ALLOWED_MIME_TYPES`, `IPFS_UPLOAD_RATE_LIMIT_*` |
+| Auth | `JWT_SECRET`, `JWT_EXPIRES_IN`, `AUTH_CHALLENGE_TTL_MS` |
+| Observability | `LOG_LEVEL`, `METRICS_ENABLED` |
+| Background reconciliation | `STELLAR_RECONCILIATION_*` |
+| Email | `SENDGRID_API_KEY`, `FROM_EMAIL` |
+| Admin | `ADMIN_API_KEY`, `ADMIN_IP_WHITELIST` |
+
+## Troubleshooting quick reference
+
+Detailed guidance lives in [`DEVELOPMENT.md`](./DEVELOPMENT.md); the common
+failures:
+
+| Symptom | Likely cause / fix |
+| ------- | ------------------ |
+| `npm ci` rejects the lockfile | Use Node 22 + npm 10 and reinstall with the committed lockfile (`npm ci`), not `npm install`. |
+| Server exits at startup with a configuration error | Startup validation fails on missing/placeholder values — complete `.env` (see the table above). |
+| Database connection or migration failure | Check `DATABASE_URL`, ensure PostgreSQL 14+ is reachable, then `npm run db:migrate`. |
+| Unexpected `429` responses | Global rate limiting (100 req/min default) — raise `RATE_LIMIT_MAX` locally or wait out the window. |
+| Jest hangs after tests finish | Known open-handle issue — run `npm run test:ci` which passes `--forceExit`. |
+
+Full guidance: [`DEVELOPMENT.md`](./DEVELOPMENT.md) (§ Troubleshooting).
 
 ## Logging and observability
 
