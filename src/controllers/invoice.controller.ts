@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import type { InvoiceService } from "../services/invoice.service";
+import type { InvoiceCacheService } from "../services/invoice-cache.service";
 import { HttpError, PublicAppError } from "../utils/http-error";
 import { ServiceError } from "../utils/service-error";
 import { AuthenticatedRequest } from "../types/auth";
@@ -75,7 +76,10 @@ function toTransitionError(error: ServiceError): PublicAppError | null {
     : null;
 }
 
-export function createInvoiceController(invoiceService: InvoiceService) {
+export function createInvoiceController(
+  invoiceService: InvoiceService,
+  cacheService?: InvoiceCacheService
+) {
   return {
     async createInvoice(
       req: CreateInvoiceRequest,
@@ -100,6 +104,10 @@ export function createInvoiceController(invoiceService: InvoiceService) {
           ipfsHash,
           riskScore,
         });
+
+        if (cacheService) {
+          await cacheService.invalidateSellerInvoices(req.user.id);
+        }
 
         res.status(201).json({
           success: true,
@@ -130,6 +138,26 @@ export function createInvoiceController(invoiceService: InvoiceService) {
           throw new HttpError(400, "Invalid pagination parameters");
         }
 
+        if (cacheService) {
+          try {
+            const cached = await cacheService.getInvoicesList(
+              req.user.id,
+              page,
+              limit,
+              status as string | undefined
+            );
+            if (cached) {
+              res.setHeader("X-Cache", "HIT");
+              res.status(200).json(JSON.parse(cached));
+              return;
+            }
+          } catch {
+            // Graceful fallback to database
+          }
+        }
+
+        res.setHeader("X-Cache", "MISS");
+
         const result = await invoiceService.getInvoicesBySellerId({
           sellerId: req.user.id,
           status: status as InvoiceStatus | undefined,
@@ -137,7 +165,7 @@ export function createInvoiceController(invoiceService: InvoiceService) {
           take: limit,
         });
 
-        res.status(200).json({
+        const responsePayload = {
           success: true,
           data: result.invoices,
           meta: {
@@ -146,7 +174,23 @@ export function createInvoiceController(invoiceService: InvoiceService) {
             limit,
             totalPages: Math.ceil(result.total / limit),
           },
-        });
+        };
+
+        if (cacheService) {
+          try {
+            await cacheService.setInvoicesList(
+              req.user.id,
+              page,
+              limit,
+              status as string | undefined,
+              responsePayload
+            );
+          } catch {
+            // Non-blocking cache error
+          }
+        }
+
+        res.status(200).json(responsePayload);
       } catch (error) {
         if (error instanceof ServiceError) {
           next(new HttpError(error.statusCode, error.message));
@@ -170,6 +214,21 @@ export function createInvoiceController(invoiceService: InvoiceService) {
 
         const { id } = req.params;
 
+        if (cacheService) {
+          try {
+            const cached = await cacheService.getInvoiceDetail(authReq.user.id, id);
+            if (cached) {
+              res.setHeader("X-Cache", "HIT");
+              res.status(200).json(JSON.parse(cached));
+              return;
+            }
+          } catch {
+            // Graceful fallback to database
+          }
+        }
+
+        res.setHeader("X-Cache", "MISS");
+
         try {
           const result = await invoiceService.getInvoiceById(id, authReq.user.id);
 
@@ -177,10 +236,20 @@ export function createInvoiceController(invoiceService: InvoiceService) {
             throw new HttpError(404, "Invoice not found");
           }
 
-          res.status(200).json({
+          const responsePayload = {
             success: true,
             data: result,
-          });
+          };
+
+          if (cacheService) {
+            try {
+              await cacheService.setInvoiceDetail(authReq.user.id, id, responsePayload);
+            } catch {
+              // Non-blocking cache error
+            }
+          }
+
+          res.status(200).json(responsePayload);
         } catch (error) {
           if (error instanceof ServiceError && error.statusCode === 403) {
             // Return 404 instead of 403 to prevent info leakage
@@ -221,6 +290,10 @@ export function createInvoiceController(invoiceService: InvoiceService) {
           riskScore,
         });
 
+        if (cacheService) {
+          await cacheService.invalidateInvoice(id, req.user.id);
+        }
+
         res.status(200).json({
           success: true,
           data: result,
@@ -255,6 +328,10 @@ export function createInvoiceController(invoiceService: InvoiceService) {
 
         await invoiceService.deleteInvoice(id, authReq.user.id);
 
+        if (cacheService) {
+          await cacheService.invalidateInvoice(id, authReq.user.id);
+        }
+
         res.status(204).send();
       } catch (error) {
         if (error instanceof ServiceError) {
@@ -285,6 +362,10 @@ export function createInvoiceController(invoiceService: InvoiceService) {
           invoiceId: req.params.id,
           sellerId: req.user.id,
         });
+
+        if (cacheService) {
+          await cacheService.invalidateInvoice(req.params.id, req.user.id);
+        }
 
         res.status(200).json({ success: true, data: result });
       } catch (error) {
@@ -335,6 +416,10 @@ export function createInvoiceController(invoiceService: InvoiceService) {
           sellerId: req.user.id,
         });
 
+        if (cacheService) {
+          await cacheService.invalidateInvoice(id, req.user.id);
+        }
+
         res.status(200).json({
           success: true,
           data: result,
@@ -373,6 +458,10 @@ export function createInvoiceController(invoiceService: InvoiceService) {
           invoiceIds: req.body.invoiceIds,
           sellerId: req.user.id,
         });
+
+        if (cacheService) {
+          await cacheService.invalidateSellerInvoices(req.user.id);
+        }
 
         res.status(200).json({
           success: true,
@@ -415,6 +504,10 @@ export function createInvoiceController(invoiceService: InvoiceService) {
           filename: req.file.originalname,
           mimeType: req.file.mimetype,
         });
+
+        if (cacheService) {
+          await cacheService.invalidateInvoice(invoiceId, sellerId);
+        }
 
         res.status(200).json({
           success: true,

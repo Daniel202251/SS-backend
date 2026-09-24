@@ -15,6 +15,7 @@ import { isValidStellarPublicKey } from "../utils/stellar-address.utils";
 import { createWalletRateLimiter } from "../middleware/rate-limit-wallet.middleware";
 import { HttpError } from "../utils/http-error";
 import { InvoiceStatus } from "../types/enums";
+import { InvoiceCacheService, createInvoiceCacheService } from "../services/invoice-cache.service";
 
 export interface InvoiceRouterDependencies {
   invoiceService: InvoiceService;
@@ -24,6 +25,7 @@ export interface InvoiceRouterDependencies {
   authService?: AuthService;
   contractGuardService?: ContractGuardService;
   contractId?: string | null;
+  cacheService?: InvoiceCacheService;
 }
 
 /**
@@ -106,7 +108,9 @@ const batchPublishSchema = Joi.object({
 const getInvoicesQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
-  status: Joi.string().valid(...Object.values(InvoiceStatus)).optional(),
+  status: Joi.string()
+    .valid(...Object.values(InvoiceStatus))
+    .optional(),
 });
 
 const calculateTermsSchema = Joi.object({
@@ -173,7 +177,7 @@ function validateQuery(schema: Joi.Schema) {
     });
 
     if (error) {
-      return next(new HttpError(400, `Invalid query parameters: ${error.message}`));
+      return next(new HttpError(422, `Invalid query parameters: ${error.message}`));
     }
 
     // Replace req.query with validated value
@@ -192,9 +196,20 @@ export function createInvoiceRouter({
   authService,
   contractGuardService,
   contractId = null,
+  cacheService,
 }: InvoiceRouterDependencies): Router {
   const router = Router();
-  const controller = createInvoiceController(invoiceService);
+  const cache =
+    cacheService ??
+    (config.cache?.enabled !== false
+      ? createInvoiceCacheService({
+          redisUrl: config.cache?.redisUrl,
+          listTtlSeconds: config.cache?.invoicesListTtlSeconds,
+          detailTtlSeconds: config.cache?.invoiceDetailTtlSeconds,
+          enabled: config.cache?.enabled,
+        })
+      : undefined);
+  const controller = createInvoiceController(invoiceService, cache);
 
   // Configure multer for file uploads
   const upload = multer({
