@@ -82,6 +82,13 @@ export function normalizeLogMetadata(
 }
 
 class WinstonAppLogger implements AppLogger {
+  /**
+   * Issue #409 — memoized child loggers. winston's `child()` builds a whole
+   * new Logger instance, which is far too expensive to repeat per call; cache
+   * the wrapper per serialized binding so hot paths reuse one instance.
+   */
+  private readonly children = new Map<string, AppLogger>();
+
   constructor(private readonly baseLogger: winston.Logger) {}
 
   private safeLog(
