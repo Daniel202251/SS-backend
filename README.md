@@ -7,14 +7,18 @@ Stellar and uses Soroban contracts for escrow and payment distribution.
 
 - Stellar wallet challenge authentication and short-lived JWT access tokens
 - Seller invoice creation, document upload, KYC-gated publishing, and lifecycle tracking
+- Redis caching layer for read-heavy invoice listing and detail routes with automated mutation invalidation and `X-Cache` observability headers
+- HMAC-SHA256 signature verification middleware for authenticating third-party webhook payloads
 - Public marketplace discovery with cursor pagination, filtering, and sorting
 - Fractional investments with idempotent payment verification and reconciliation
 - Settlement orchestration, notifications, webhooks, health checks, and Prometheus metrics
+- Hardened structured logging with correlation IDs, sensitive data redaction, and cycle-safe serialization
 
 ## Requirements
 
 - Node.js 22 or newer and npm 10 or newer
 - PostgreSQL 14 or newer
+- Redis 6 or newer (optional; API gracefully falls back to direct database access if disconnected)
 - Stellar testnet credentials for payment verification
 - Pinata-compatible IPFS credentials for document uploads
 
@@ -52,6 +56,22 @@ Required for a normal local boot:
 | `IPFS_API_URL` | Pinning API endpoint                                   |
 | `IPFS_JWT`     | Pinning service credential                             |
 
+### Redis Caching Settings
+
+| Variable                   | Default                  | Purpose                                                  |
+| -------------------------- | ------------------------ | -------------------------------------------------------- |
+| `REDIS_URL`                | `redis://localhost:6379` | Redis connection URL (falls back to DB if unreachable)   |
+| `CACHE_ENABLED`            | `true`                   | Enable or disable caching layer                          |
+| `CACHE_TTL_INVOICES_LIST`  | `30`                     | TTL in seconds for invoice listing (`GET /invoices`)     |
+| `CACHE_TTL_INVOICE_DETAIL` | `60`                     | TTL in seconds for invoice details (`GET /invoices/:id`) |
+
+### Webhook & Security Settings
+
+| Variable             | Purpose                                                              |
+| -------------------- | -------------------------------------------------------------------- |
+| `KYC_WEBHOOK_SECRET` | Shared secret for HMAC-SHA256 signature verification on KYC webhooks |
+| `WEBHOOK_SECRET`     | Default shared secret for generic provider webhook signature checks  |
+
 Security-sensitive operational settings include `TRUST_PROXY`,
 `CORS_ALLOWED_ORIGINS`, `ADMIN_IP_WHITELIST`, and the `RATE_LIMIT_*` values.
 Only enable `TRUST_PROXY` when requests arrive through a trusted proxy; Express
@@ -86,7 +106,7 @@ All application routes use the `/api/v1` prefix.
 
 - `/api/v1/auth` — wallet challenge authentication
 - `/api/v1/kyc` — KYC submission, status, and webhook ingestion
-- `/api/v1/invoices` — invoice CRUD, publishing, lifecycle, and document upload
+- `/api/v1/invoices` — invoice CRUD, publishing, caching, lifecycle, and document upload
 - `/api/v1/marketplace` — public invoice discovery
 - `/api/v1/investments` — investment creation and history
 - `/api/v1/settlements` — settlement operations
@@ -100,15 +120,15 @@ Feature-specific references are available under [`docs/`](./docs/).
 
 ```text
 src/
-├── config/          environment, database, and Stellar configuration
+├── config/          environment, database, cache, and Stellar configuration
 ├── controllers/     HTTP request/response adapters
-├── middleware/      security, validation, throttling, and observability
+├── middleware/      security, validation, HMAC webhooks, and observability
 ├── models/          TypeORM entities
-├── routes/          API route composition
-├── services/        business and external-integration logic
+├── routes/          API route composition and caching integration
+├── services/        business, cache, and external-integration logic
 │   └── stellar/     Horizon and Soroban integrations
 ├── workers/         bounded background reconciliation
-├── observability/   structured logging, redaction, and metrics
+├── observability/   hardened structured logging, cycle-safe redaction, and metrics
 └── utils/           shared pure helpers
 ```
 
@@ -118,11 +138,11 @@ schema changes must be represented by migrations. See
 
 ## Reliability and security
 
-- Structured Winston logs redact sensitive values and include request correlation data.
-- Global throttling defaults to 100 requests per minute and emits standard rate-limit headers.
-- Multiple API replicas should provide a shared `express-rate-limit` store; the in-memory default is process-local.
-- Input sanitization, Helmet, CORS allowlists, admin CIDR allowlists, and parameterized TypeORM queries form the HTTP boundary.
-- The reconciliation worker is disabled by default. Run one worker replica unless distributed locking is added.
+- **Redis Caching Layer**: Frequently accessed invoice listing and detail responses are cached in Redis with configurable TTLs (30s and 60s respectively). Cached responses are served within 10ms with `X-Cache: HIT`, and mutations (create, update, publish, delete) automatically invalidate cache keys. If Redis is unavailable or disconnected, the service falls back to PostgreSQL without error (`X-Cache: MISS`).
+- **HMAC-SHA256 Webhook Verification**: Inbound webhooks are verified using constant-time HMAC-SHA256 comparisons (`crypto.timingSafeEqual`) against configured shared secrets before processing, with raw payload preservation on `req.rawBody` and support for configurable signature header names.
+- **Hardened Observability**: Winston structured logging stamps request correlation IDs via `AsyncLocalStorage`, redacts sensitive keys, and safely sanitizes `BigInt`, circular references, and `Error` objects to guarantee non-throwing execution.
+- **Rate Limiting & Boundary Guards**: Global throttling defaults to 100 requests per minute with per-wallet rate limits on invoice publishing and investment operations.
+- **Boundary Defense**: Input sanitization, Helmet, CORS allowlists, admin CIDR allowlists, and parameterized TypeORM queries secure the HTTP boundary.
 
 See [`SECURITY.md`](./SECURITY.md) for private vulnerability reporting.
 
