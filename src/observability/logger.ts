@@ -20,6 +20,14 @@ const MAX_DEPTH_PLACEHOLDER = "[MaxDepth]";
 const CIRCULAR_PLACEHOLDER = "[Circular]";
 
 /**
+ * Maximum number of top-level metadata keys carried into a log entry
+ * (issue #409): bound the per-entry serialization work so a runaway caller
+ * cannot inflate every log line under heavy load. Dropped keys are reported
+ * explicitly instead of disappearing silently.
+ */
+const MAX_METADATA_KEYS = 64;
+
+/**
  * Make a single value safe for the JSON formatter winston applies to every
  * log line. Anything JSON cannot represent — circular structures, Error
  * instances, bigints, functions, symbols — is replaced with a stable,
@@ -75,13 +83,30 @@ export function sanitizeLogMetadata(metadata: LogMetadata | undefined): LogMetad
   }
 
   try {
-    return sanitizeValue(metadata, MAX_METADATA_DEPTH, new WeakSet()) as LogMetadata;
+    const sanitized = sanitizeValue(metadata, MAX_METADATA_DEPTH, new WeakSet()) as LogMetadata;
+    const keys = Object.keys(sanitized);
+    if (keys.length <= MAX_METADATA_KEYS) return sanitized;
+
+    // Issue #409: keep the entry bounded. Drop the overflow keys but say so.
+    const bounded: Record<string, unknown> = {};
+    for (const key of Object.keys(sanitized).slice(0, MAX_METADATA_KEYS)) {
+      bounded[key] = sanitized[key];
+    }
+    bounded.droppedMetadataKeys = Object.keys(sanitized).length - MAX_METADATA_KEYS;
+    return bounded;
   } catch {
     return { metadata: "[Unserializable log metadata]" };
   }
 }
 
 class WinstonAppLogger implements AppLogger {
+  /**
+   * Issue #409 — memoized child loggers. winston's `child()` builds a whole
+   * new Logger instance, which is far too expensive to repeat per call; cache
+   * the wrapper per serialized binding so hot paths reuse one instance.
+   */
+  private readonly children = new Map<string, AppLogger>();
+
   constructor(private readonly baseLogger: winston.Logger) {}
 
   debug(message: string, metadata?: LogMetadata): void {
@@ -101,7 +126,14 @@ class WinstonAppLogger implements AppLogger {
   }
 
   child(metadata: LogMetadata): AppLogger {
-    return new WinstonAppLogger(this.baseLogger.child(sanitizeLogMetadata(metadata)));
+    const binding = sanitizeLogMetadata(metadata);
+    const cacheKey = JSON.stringify(binding);
+    const cached = this.children.get(cacheKey);
+    if (cached) return cached;
+
+    const child = new WinstonAppLogger(this.baseLogger.child(binding));
+    this.children.set(cacheKey, child);
+    return child;
   }
 
   /**
@@ -109,9 +141,15 @@ class WinstonAppLogger implements AppLogger {
    * transport or formatter must not cascade into a 500. If even the fallback
    * emission fails, the error is swallowed — logging can never be the reason
    * a request fails.
+   *
+   * Issue #409: suppressed levels short-circuit BEFORE any sanitization or
+   * metadata traversal work happens, so a disabled level costs nothing under
+   * heavy load.
    */
   private safeEmit(level: "debug" | "info" | "warn" | "error", message: string, metadata?: LogMetadata): void {
     try {
+      if (!this.baseLogger.isLevelEnabled(level)) return;
+
       const text = typeof message === "string" ? message : String(message);
       this.baseLogger[level](text, sanitizeLogMetadata(metadata));
     } catch (emissionError) {

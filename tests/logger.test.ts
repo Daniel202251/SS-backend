@@ -111,3 +111,64 @@ describe("logger hardening (issue #406)", () => {
     });
   });
 });
+
+describe("logger performance hardening (issue #409)", () => {
+  function makeLevelAwareBase(level: string) {
+    return {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      isLevelEnabled: jest.fn((lvl: string) => {
+        const order = ["error", "warn", "info", "debug"];
+        return order.indexOf(lvl) <= order.indexOf(level);
+      }),
+      child: jest.fn(() => makeLevelAwareBase(level)),
+    };
+  }
+
+  it("skips sanitization/emission work entirely for suppressed levels", () => {
+    // "warn" base: info/debug are suppressed.
+    const base = makeLevelAwareBase("warn");
+    const logger: AppLogger = createLogger(base as never);
+
+    logger.debug("cheap check", { deep: { nested: "payload" } });
+    logger.info("not emitted", { key: "value" });
+
+    expect(base.debug).not.toHaveBeenCalled();
+    expect(base.info).not.toHaveBeenCalled();
+  });
+
+  it("still emits enabled levels with sanitized metadata", () => {
+    const base = makeLevelAwareBase("warn");
+    const logger: AppLogger = createLogger(base as never);
+
+    logger.warn("visible", { key: "value" });
+    expect(base.warn).toHaveBeenCalledWith("visible", { key: "value" });
+  });
+
+  it("caches child loggers per binding instead of rebuilding winston children", () => {
+    const base = makeLevelAwareBase("info");
+    const logger: AppLogger = createLogger(base as never);
+
+    const first = logger.child({ requestId: "r1" });
+    const second = logger.child({ requestId: "r1" });
+    const different = logger.child({ requestId: "r2" });
+
+    expect(first).toBe(first); // stable identity
+    expect(first).toBe(second);
+    expect(different).not.toBe(first);
+    expect(base.child).toHaveBeenCalledTimes(2); // once per distinct binding
+  });
+
+  it("bounds oversized metadata instead of serializing unbounded entries", () => {
+    const metadata: Record<string, number> = {};
+    for (let i = 0; i < 100; i++) metadata[`key${i}`] = i;
+
+    const sanitized = sanitizeLogMetadata(metadata) as Record<string, unknown> & {
+      droppedMetadataKeys?: number;
+    };
+    expect(Object.keys(sanitized).length).toBeLessThanOrEqual(65); // 64 kept + drop marker
+    expect(sanitized.droppedMetadataKeys).toBe(36);
+  });
+});
