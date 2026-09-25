@@ -117,6 +117,7 @@ const TRANSITION_RULES: readonly TransitionRule[] = Object.freeze([
     roles: ["system"],
     guard: fullyFunded,
   },
+  { from: InvoiceStatus.PUBLISHED, to: InvoiceStatus.EXPIRED, roles: ["system"] },
   { from: InvoiceStatus.FUNDED, to: InvoiceStatus.SETTLED, roles: ["admin", "system"] },
   { from: InvoiceStatus.DRAFT, to: InvoiceStatus.CANCELLED, roles: ["seller", "admin"] },
   { from: InvoiceStatus.PENDING, to: InvoiceStatus.CANCELLED, roles: ["seller", "admin"] },
@@ -379,6 +380,10 @@ const SELLER_MESSAGES: Partial<
     "Invoice Rejected",
     `Your invoice ${invoice.invoiceNumber} has been rejected: ${reason ?? "no reason given"}`,
   ],
+  [InvoiceStatus.EXPIRED]: (invoice) => [
+    "Invoice Expired",
+    `Your invoice ${invoice.invoiceNumber} expired before it reached its funding target.`,
+  ],
   [InvoiceStatus.FUNDED]: (invoice) => [
     "Invoice Funded",
     `Your invoice ${invoice.invoiceNumber} has been fully funded.`,
@@ -397,6 +402,7 @@ const SELLER_MESSAGES: Partial<
 // other status changes are reported as generic invoice notifications.
 const SELLER_NOTIFICATION_TYPES: Partial<Record<InvoiceStatus, NotificationType>> = {
   [InvoiceStatus.REJECTED]: NotificationType.INVOICE_REJECTED,
+  [InvoiceStatus.EXPIRED]: NotificationType.INVOICE,
   [InvoiceStatus.FUNDED]: NotificationType.INVOICE_FUNDED,
   [InvoiceStatus.SETTLED]: NotificationType.INVOICE_SETTLED,
 };

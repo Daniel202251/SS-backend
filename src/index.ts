@@ -23,6 +23,7 @@ import { createSettlementService } from "./services/settlement.service";
 import { createMarketplaceService } from "./services/marketplace.service";
 import { KycService } from "./services/kyc.service";
 import { PaymentDistributorContractService } from "./services/stellar/payment-distributor-contract.service";
+import { InvoiceEscrowContractService } from "./services/stellar/invoice-escrow-contract.service";
 import { getSorobanConfig } from "./config/stellar";
 
 export async function bootstrap(): Promise<{ server: Server }> {
@@ -51,12 +52,25 @@ export async function bootstrap(): Promise<{ server: Server }> {
     dataSource,
     stateMachine: invoiceStateMachine,
   });
+  const sorobanConfig = getSorobanConfig();
+  const escrowRefundService =
+    sorobanConfig.escrowContractId && sorobanConfig.rpcUrl
+      ? new InvoiceEscrowContractService(
+          {
+            contractId: sorobanConfig.escrowContractId,
+            rpcUrl: sorobanConfig.rpcUrl,
+            networkPassphrase: sorobanConfig.networkPassphrase,
+            platformSecretKey: sorobanConfig.platformSecretKey,
+          },
+          logger
+        )
+      : undefined;
   const investmentService = createInvestmentService(
     dataSource,
     invoiceStateMachine,
-    createInvestmentNotifier(notificationService, logger)
+    createInvestmentNotifier(notificationService, logger),
+    escrowRefundService
   );
-  const sorobanConfig = getSorobanConfig();
   const distributor =
     sorobanConfig.paymentDistributorContractId && sorobanConfig.platformSecretKey
       ? new PaymentDistributorContractService(

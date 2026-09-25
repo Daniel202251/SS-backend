@@ -19,6 +19,7 @@ export enum InvoiceStatus {
   DRAFT = "draft",
   PENDING = "pending",
   PUBLISHED = "published",
+  EXPIRED = "expired",
   FUNDED = "funded",
   SETTLED = "settled",
   CANCELLED = "cancelled",

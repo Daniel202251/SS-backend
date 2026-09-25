@@ -11,7 +11,8 @@ export type InvoiceTransitionReason =
   | "admin_cancelled"
   | "fully_funded"
   | "admin_settled"
-  | "admin_rejected";
+  | "admin_rejected"
+  | "invoice_expired";
 
 export interface InvoiceTransitionLogInput {
   invoiceId: string;

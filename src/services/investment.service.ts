@@ -60,6 +60,21 @@ export interface InvestInInvoiceResult {
   funding: InvoiceFundingState;
 }
 
+export interface RefundExpiredInvoiceInput {
+  invoiceId: string;
+  investorId: string;
+  walletAddress: string;
+}
+
+export interface RefundExpiredInvoiceResult {
+  invoiceId: string;
+  investorId: string;
+  investmentId: string;
+  refundedAmount: string;
+  status: InvoiceStatus;
+  txHash?: string;
+}
+
 /** Approximate Stellar ledger close time, used to bucket requests without a ledger. */
 export const FUNDING_WINDOW_MS = 5_000;
 
@@ -134,7 +149,13 @@ export class InvestmentService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly stateMachine: InvoiceStateMachine = createInvoiceStateMachine(),
-    private readonly investmentNotifier?: InvestmentNotifier
+    private readonly investmentNotifier?: InvestmentNotifier,
+    private readonly refundContractService?: {
+      refundInvestment: (
+        invoiceId: string,
+        investorAddress: string
+      ) => Promise<{ txHash: string; status: "SUCCESS" | "FAILED"; ledger: number | null }>;
+    }
   ) {}
 
   /**
@@ -560,6 +581,125 @@ export class InvestmentService {
    * Uses a database transaction with a row-level lock on the invoice to prevent over-subscription.
    * Implements optimistic locking retry logic to handle concurrent investment attempts.
    */
+  async refundExpiredInvoiceInvestment(
+    input: RefundExpiredInvoiceInput
+  ): Promise<RefundExpiredInvoiceResult> {
+    const { invoiceId, investorId, walletAddress } = input;
+
+    if (!walletAddress || !walletAddress.trim()) {
+      throw new ServiceError("invalid_wallet", "Investor wallet is required", 400);
+    }
+
+    let expiredTransition: InvoiceTransition | null = null;
+    let response: RefundExpiredInvoiceResult;
+
+    ({ response, expiredTransition } = await this.dataSource.transaction(async (manager: EntityManager) => {
+      const invoice = await manager.findOne(Invoice, { where: { id: invoiceId } });
+      if (!invoice) {
+        throw new ServiceError("INVOICE_NOT_FOUND", "Invoice not found", 404);
+      }
+
+      if (invoice.status === InvoiceStatus.FUNDED || invoice.status === InvoiceStatus.SETTLED) {
+        throw new ServiceError(
+          "invoice_not_refundable",
+          "This invoice has already been funded or settled and cannot be refunded.",
+          400
+        );
+      }
+
+      if (invoice.status === InvoiceStatus.EXPIRED) {
+        throw new ServiceError(
+          "invoice_not_refundable",
+          "This invoice has already expired and no refund remains available.",
+          400
+        );
+      }
+
+      if (invoice.dueDate && new Date(invoice.dueDate) >= new Date()) {
+        throw new ServiceError(
+          "invoice_not_expired",
+          "Refund is only available after the funding deadline has passed.",
+          400
+        );
+      }
+
+      const investment = await manager.findOne(Investment, {
+        where: { invoiceId, investorId },
+      });
+
+      if (!investment) {
+        throw new ServiceError(
+          "investment_not_found",
+          "No committed investment record was found for this investor on the invoice.",
+          404
+        );
+      }
+
+      if (
+        investment.status !== InvestmentStatus.PENDING &&
+        investment.status !== InvestmentStatus.CONFIRMED
+      ) {
+        throw new ServiceError(
+          "investment_not_refundable",
+          "Only active investment records can be refunded.",
+          400
+        );
+      }
+
+      if (!this.refundContractService) {
+        throw new ServiceError(
+          "soroban_contract_not_configured",
+          "Refund submission is unavailable because the Soroban refund contract is not configured.",
+          503
+        );
+      }
+
+      const refundResult = await this.refundContractService.refundInvestment(invoiceId, walletAddress);
+      if (refundResult.status !== "SUCCESS") {
+        throw new ServiceError(
+          "soroban_refund_failed",
+          "The refund transaction failed on-chain and the investment was not removed.",
+          400,
+          { txHash: refundResult.txHash, ledger: refundResult.ledger }
+        );
+      }
+
+      await manager.remove(Investment, investment);
+
+      const remainingInvestments = await manager.count(Investment, { where: { invoiceId } });
+      let transition: InvoiceTransition | null = null;
+      if (remainingInvestments === 0) {
+        transition = await this.stateMachine.transition(
+          entityManagerTransitionStore(manager),
+          invoice,
+          InvoiceStatus.EXPIRED,
+          {
+            actor: { role: "system", wallet: walletAddress },
+            trigger: "invoice_expired",
+          }
+        );
+      }
+
+      return {
+        response: {
+          invoiceId,
+          investorId,
+          investmentId: investment.id,
+          refundedAmount: investment.investmentAmount,
+          status: transition ? InvoiceStatus.EXPIRED : invoice.status,
+          txHash: refundResult.txHash,
+        },
+        expiredTransition: transition,
+      };
+    }));
+
+    if (expiredTransition) {
+      await this.stateMachine.dispatch(expiredTransition);
+    }
+
+    return response;
+  }
+
   async createInvestment(input: CreateInvestmentInput): Promise<Investment> {
     const { invoiceId, investorId, investmentAmount, investorWallet } = input;
 
@@ -735,7 +875,13 @@ export class InvestmentService {
 export function createInvestmentService(
   dataSource: DataSource,
   stateMachine?: InvoiceStateMachine,
-  investmentNotifier?: InvestmentNotifier
+  investmentNotifier?: InvestmentNotifier,
+  refundContractService?: {
+    refundInvestment: (
+      invoiceId: string,
+      investorAddress: string
+    ) => Promise<{ txHash: string; status: "SUCCESS" | "FAILED"; ledger: number | null }>;
+  }
 ): InvestmentService {
-  return new InvestmentService(dataSource, stateMachine, investmentNotifier);
+  return new InvestmentService(dataSource, stateMachine, investmentNotifier, refundContractService);
 }

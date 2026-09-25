@@ -80,5 +80,44 @@ export function createInvoiceInvestmentController(investmentService: InvestmentS
         next(error);
       }
     },
+
+    async refund(req: AuthenticatedRequest & { params: { id: string } }, res: Response, next: NextFunction): Promise<void> {
+      try {
+        const user = req.user;
+        if (!user) {
+          throw new HttpError(401, "Authentication required");
+        }
+
+        requireApprovedKYC(user);
+
+        const result = await investmentService.refundExpiredInvoiceInvestment({
+          invoiceId: req.params.id,
+          investorId: user.id,
+          walletAddress: user.stellarAddress,
+        });
+
+        res.status(200).json({
+          success: true,
+          data: result,
+        });
+      } catch (error) {
+        if (error instanceof ServiceError) {
+          next(
+            new PublicAppError(
+              error.statusCode,
+              error.message,
+              error.code.toUpperCase(),
+              error.details
+            )
+          );
+          return;
+        }
+        if (error instanceof KYCError) {
+          next(new AppError(error.statusCode, error.message, error.code));
+          return;
+        }
+        next(error);
+      }
+    },
   };
 }

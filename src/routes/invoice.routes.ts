@@ -335,6 +335,13 @@ export function createInvoiceRouter({
       validateBody(investSchema),
       investController.invest as RequestHandler
     );
+
+    router.post(
+      "/:id/refund",
+      createAuthMiddleware(authService),
+      ...pauseGuard,
+      investController.refund as RequestHandler
+    );
   }
 
   // GET /api/v1/invoices/:id/tokens - Get invoice token holders

@@ -23,7 +23,12 @@ import { AppError } from "../utils/http-error";
 export const VALID_INVOICE_TRANSITIONS: Record<InvoiceStatus, readonly InvoiceStatus[]> = Object.freeze({
   [InvoiceStatus.DRAFT]: Object.freeze([InvoiceStatus.PUBLISHED, InvoiceStatus.CANCELLED, InvoiceStatus.REJECTED]),
   [InvoiceStatus.PENDING]: Object.freeze([InvoiceStatus.PUBLISHED, InvoiceStatus.CANCELLED, InvoiceStatus.REJECTED]),
-  [InvoiceStatus.PUBLISHED]: Object.freeze([InvoiceStatus.FUNDED, InvoiceStatus.CANCELLED]),
+  [InvoiceStatus.PUBLISHED]: Object.freeze([
+    InvoiceStatus.FUNDED,
+    InvoiceStatus.EXPIRED,
+    InvoiceStatus.CANCELLED,
+  ]),
+  [InvoiceStatus.EXPIRED]: Object.freeze([]),
   [InvoiceStatus.FUNDED]: Object.freeze([InvoiceStatus.SETTLED, InvoiceStatus.CANCELLED]),
   [InvoiceStatus.SETTLED]: Object.freeze([InvoiceStatus.CANCELLED]),
   [InvoiceStatus.CANCELLED]: Object.freeze([]),

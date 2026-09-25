@@ -297,20 +297,6 @@ export class InvoiceEscrowContractService {
     const safeInvoiceId = sanitizeString(invoiceId, "invoiceId");
     const safeSeller = sanitizeString(sellerAddress, "sellerAddress");
     const safeToken = sanitizeString(paymentTokenAddress, "paymentTokenAddress");
-    const amountBigInt = typeof amountStroops === "bigint" ? amountStroops : BigInt(amountStroops);
-    if (!invoiceId || typeof invoiceId !== "string" || !invoiceId.trim()) {
-      throw new Error("invoiceId is required.");
-    }
-    if (!sellerAddress || typeof sellerAddress !== "string" || !sellerAddress.trim()) {
-      throw new Error("sellerAddress is required.");
-    }
-    if (!Number.isFinite(dueDateTimestamp) || dueDateTimestamp <= 0) {
-      throw new Error("dueDateTimestamp must be a positive number.");
-    }
-    if (!paymentTokenAddress || typeof paymentTokenAddress !== "string" || !paymentTokenAddress.trim()) {
-      throw new Error("paymentTokenAddress is required.");
-    }
-
     const amountBigInt = this.parseStroopAmount(amountStroops, "amountStroops");
     this.parseDueDate(dueDateTimestamp);
 
@@ -320,9 +306,7 @@ export class InvoiceEscrowContractService {
       new Address(safeSeller).toScVal(),
       nativeToScVal(amountBigInt, { type: "i128" }),
       nativeToScVal(dueDateTimestamp, { type: "u64" }),
-      new Address(safeToken).toScVal(),
-      new Address(paymentTokenAddress).toScVal()
-      new Address(paymentTokenAddress.trim()).toScVal(),
+      new Address(safeToken).toScVal()
     );
   }
 
@@ -336,27 +320,27 @@ export class InvoiceEscrowContractService {
   ): xdr.Operation {
     const safeInvoiceId = sanitizeString(invoiceId, "invoiceId");
     const safeInvestor = sanitizeString(investorAddress, "investorAddress");
-    const amountBigInt = typeof amountStroops === "bigint" ? amountStroops : BigInt(amountStroops);
-
-    return this.contract.call(
-      "fund_escrow",
-      nativeToScVal(invoiceId, { type: "symbol" }),
-      new Address(investorAddress).toScVal(),
-      nativeToScVal(amountBigInt, { type: "i128" })
-    if (!invoiceId || typeof invoiceId !== "string" || !invoiceId.trim()) {
-      throw new Error("invoiceId is required.");
-    }
-    if (!investorAddress || typeof investorAddress !== "string" || !investorAddress.trim()) {
-      throw new Error("investorAddress is required.");
-    }
-
     const amountBigInt = this.parseStroopAmount(amountStroops, "amountStroops");
 
     return this.contract.call(
       "fund_escrow",
       nativeToScVal(safeInvoiceId, { type: "symbol" }),
       new Address(safeInvestor).toScVal(),
-      nativeToScVal(amountBigInt, { type: "i128" }),
+      nativeToScVal(amountBigInt, { type: "i128" })
+    );
+  }
+
+  /**
+   * Build the Soroban contract invocation operation for refunding an investor.
+   */
+  public buildRefundInvestmentTx(invoiceId: string, investorAddress: string): xdr.Operation {
+    const safeInvoiceId = sanitizeString(invoiceId, "invoiceId");
+    const safeInvestor = sanitizeString(investorAddress, "investorAddress");
+
+    return this.contract.call(
+      "refund_investment",
+      nativeToScVal(safeInvoiceId, { type: "symbol" }),
+      new Address(safeInvestor).toScVal()
     );
   }
 
@@ -370,27 +354,13 @@ export class InvoiceEscrowContractService {
   ): xdr.Operation {
     const safeInvoiceId = sanitizeString(invoiceId, "invoiceId");
     const safePayer = sanitizeString(payerAddress, "payerAddress");
-    const amountBigInt = typeof amountStroops === "bigint" ? amountStroops : BigInt(amountStroops);
-
-    return this.contract.call(
-      "record_payment",
-      nativeToScVal(invoiceId, { type: "symbol" }),
-      new Address(payerAddress).toScVal(),
-      nativeToScVal(amountBigInt, { type: "i128" })
-    if (!invoiceId || typeof invoiceId !== "string" || !invoiceId.trim()) {
-      throw new Error("invoiceId is required.");
-    }
-    if (!payerAddress || typeof payerAddress !== "string" || !payerAddress.trim()) {
-      throw new Error("payerAddress is required.");
-    }
-
     const amountBigInt = this.parseStroopAmount(amountStroops, "amountStroops");
 
     return this.contract.call(
       "record_payment",
       nativeToScVal(safeInvoiceId, { type: "symbol" }),
       new Address(safePayer).toScVal(),
-      nativeToScVal(amountBigInt, { type: "i128" }),
+      nativeToScVal(amountBigInt, { type: "i128" })
     );
   }
 
@@ -399,15 +369,7 @@ export class InvoiceEscrowContractService {
    */
   public buildSettleEscrowTx(invoiceId: string): xdr.Operation {
     const safeInvoiceId = sanitizeString(invoiceId, "invoiceId");
-    return this.contract.call("settle_escrow", nativeToScVal(invoiceId, { type: "symbol" }));
-    if (!invoiceId || typeof invoiceId !== "string" || !invoiceId.trim()) {
-      throw new Error("invoiceId is required.");
-    }
-
-    return this.contract.call(
-      "settle_escrow",
-      nativeToScVal(safeInvoiceId, { type: "symbol" }),
-    );
+    return this.contract.call("settle_escrow", nativeToScVal(safeInvoiceId, { type: "symbol" }));
   }
 
   /**
@@ -642,11 +604,6 @@ export class InvoiceEscrowContractService {
    * seeds, or auth tokens are ever written to logs.
    */
   public async createEscrowOnChain(input: CreateEscrowInput): Promise<CreateEscrowResult> {
-    const amountBigInt =
-      typeof input.amountStroops === "bigint" ? input.amountStroops : BigInt(input.amountStroops);
-  public async createEscrowOnChain(
-    input: CreateEscrowInput,
-  ): Promise<CreateEscrowResult> {
     const amountBigInt = this.parseStroopAmount(input.amountStroops, "amountStroops");
     this.parseDueDate(input.dueDateTimestamp);
 
@@ -673,6 +630,54 @@ export class InvoiceEscrowContractService {
       sellerAddress: input.sellerAddress,
       amountStroops: amountStroopsStr,
       operation,
+    };
+  }
+
+  /**
+   * Submits a refund call for an investor whose committed capital is being
+   * reclaimed after an expired unfunded invoice.
+   */
+  public async refundInvestment(
+    invoiceId: string,
+    investorAddress: string
+  ): Promise<{ txHash: string; status: "SUCCESS" | "FAILED"; ledger: number | null }> {
+    if (!this.rpcServer || !this.networkPassphrase || !this.platformSecretKey) {
+      throw new ServiceError(
+        "soroban_refund_unavailable",
+        "Soroban refund submission is not configured for this environment.",
+        503
+      );
+    }
+
+    const operation = this.buildRefundInvestmentTx(invoiceId, investorAddress);
+    const signer = require("stellar-sdk").Keypair.fromSecret(this.platformSecretKey);
+    const sourceAccount = await this.rpcServer.getAccount(signer.publicKey());
+    const transaction = new (require("stellar-sdk").TransactionBuilder)(sourceAccount, {
+      fee: "100000",
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(operation)
+      .setTimeout(30)
+      .build();
+
+    transaction.sign(signer);
+
+    const simulation = await this.simulateTransaction(transaction);
+    if (simulation.error) {
+      throw new ServiceError(
+        "soroban_refund_simulation_failed",
+        `Refund simulation failed: ${simulation.error}`,
+        400,
+        { invoiceId, investorAddress, error: simulation.error }
+      );
+    }
+
+    const submitted = await this.submitTransaction(transaction);
+    const confirmation = await this.waitForTransactionConfirmation(submitted.txHash);
+    return {
+      txHash: submitted.txHash,
+      status: confirmation.status === "SUCCESS" ? "SUCCESS" : "FAILED",
+      ledger: confirmation.ledger,
     };
   }
 }
