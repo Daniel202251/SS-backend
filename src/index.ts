@@ -20,10 +20,12 @@ import { Invoice } from "./models/Invoice.model";
 import { createIPFSService } from "./services/ipfs.service";
 import { createInvestmentService } from "./services/investment.service";
 import { createSettlementService } from "./services/settlement.service";
+import { createAdminSettlementService } from "./services/admin-settlement.service";
 import { createMarketplaceService } from "./services/marketplace.service";
 import { KycService } from "./services/kyc.service";
 import { PaymentDistributorContractService } from "./services/stellar/payment-distributor-contract.service";
 import { createOnchainProjections } from "./services/onchain-projections.service";
+import { InvoiceEscrowContractService } from "./services/stellar/invoice-escrow-contract.service";
 import { getSorobanConfig } from "./config/stellar";
 import { createRatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import { createDividendCycleService } from "./services/dividend-cycle.service";
@@ -75,6 +77,19 @@ export async function bootstrap(): Promise<{ server: Server }> {
     distributor && sorobanConfig.platformFeeRecipient
       ? { feeRecipient: sorobanConfig.platformFeeRecipient, feeBps: sorobanConfig.platformFeeBps }
       : undefined;
+  
+  const invoiceEscrowContract =
+    sorobanConfig.escrowContractId && sorobanConfig.rpcUrl && sorobanConfig.platformSecretKey
+      ? new InvoiceEscrowContractService(
+          {
+            ...sorobanConfig,
+            contractId: sorobanConfig.escrowContractId,
+            networkPassphrase: sorobanConfig.networkPassphrase,
+          },
+          logger
+        )
+      : undefined;
+
   const settlementService = createSettlementService(
     dataSource,
     distributor,
@@ -83,6 +98,17 @@ export async function bootstrap(): Promise<{ server: Server }> {
     undefined,
     notificationService
   );
+  
+  const adminSettlementService =
+    invoiceEscrowContract && notificationService
+      ? createAdminSettlementService(
+          dataSource,
+          invoiceEscrowContract,
+          notificationService,
+          invoiceStateMachine
+        )
+      : undefined;
+
   const marketplaceService = createMarketplaceService(dataSource);
   const kycService = new KycService(dataSource, config.kyc.webhookSecret ?? "", logger);
 
@@ -123,6 +149,7 @@ export async function bootstrap(): Promise<{ server: Server }> {
     invoiceService,
     investmentService,
     settlementService,
+    adminSettlementService,
     marketplaceService,
     kycService,
     ratingsLeaderboardService,

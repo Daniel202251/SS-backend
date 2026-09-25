@@ -6,6 +6,9 @@ import {
   SorobanRpc,
   Transaction,
   FeeBumpTransaction,
+  Keypair,
+  TransactionBuilder,
+  BASE_FEE,
 } from "stellar-sdk";
 import type { AppLogger } from "../../observability/logger";
 import { logger as globalLogger } from "../../observability/logger";
@@ -297,6 +300,20 @@ export class InvoiceEscrowContractService {
     const safeInvoiceId = sanitizeString(invoiceId, "invoiceId");
     const safeSeller = sanitizeString(sellerAddress, "sellerAddress");
     const safeToken = sanitizeString(paymentTokenAddress, "paymentTokenAddress");
+
+    if (!invoiceId || typeof invoiceId !== "string" || !invoiceId.trim()) {
+      throw new Error("invoiceId is required.");
+    }
+    if (!sellerAddress || typeof sellerAddress !== "string" || !sellerAddress.trim()) {
+      throw new Error("sellerAddress is required.");
+    }
+    if (!Number.isFinite(dueDateTimestamp) || dueDateTimestamp <= 0) {
+      throw new Error("dueDateTimestamp must be a positive number.");
+    }
+    if (!paymentTokenAddress || typeof paymentTokenAddress !== "string" || !paymentTokenAddress.trim()) {
+      throw new Error("paymentTokenAddress is required.");
+    }
+
     const amountBigInt = this.parseStroopAmount(amountStroops, "amountStroops");
     this.parseDueDate(dueDateTimestamp);
 
@@ -306,7 +323,7 @@ export class InvoiceEscrowContractService {
       new Address(safeSeller).toScVal(),
       nativeToScVal(amountBigInt, { type: "i128" }),
       nativeToScVal(dueDateTimestamp, { type: "u64" }),
-      new Address(safeToken).toScVal(),
+      new Address(safeToken).toScVal()
     );
   }
 
@@ -320,13 +337,21 @@ export class InvoiceEscrowContractService {
   ): xdr.Operation {
     const safeInvoiceId = sanitizeString(invoiceId, "invoiceId");
     const safeInvestor = sanitizeString(investorAddress, "investorAddress");
+
+    if (!invoiceId || typeof invoiceId !== "string" || !invoiceId.trim()) {
+      throw new Error("invoiceId is required.");
+    }
+    if (!investorAddress || typeof investorAddress !== "string" || !investorAddress.trim()) {
+      throw new Error("investorAddress is required.");
+    }
+
     const amountBigInt = this.parseStroopAmount(amountStroops, "amountStroops");
 
     return this.contract.call(
       "fund_escrow",
       nativeToScVal(safeInvoiceId, { type: "symbol" }),
       new Address(safeInvestor).toScVal(),
-      nativeToScVal(amountBigInt, { type: "i128" }),
+      nativeToScVal(amountBigInt, { type: "i128" })
     );
   }
 
@@ -340,13 +365,21 @@ export class InvoiceEscrowContractService {
   ): xdr.Operation {
     const safeInvoiceId = sanitizeString(invoiceId, "invoiceId");
     const safePayer = sanitizeString(payerAddress, "payerAddress");
+
+    if (!invoiceId || typeof invoiceId !== "string" || !invoiceId.trim()) {
+      throw new Error("invoiceId is required.");
+    }
+    if (!payerAddress || typeof payerAddress !== "string" || !payerAddress.trim()) {
+      throw new Error("payerAddress is required.");
+    }
+
     const amountBigInt = this.parseStroopAmount(amountStroops, "amountStroops");
 
     return this.contract.call(
       "record_payment",
       nativeToScVal(safeInvoiceId, { type: "symbol" }),
       new Address(safePayer).toScVal(),
-      nativeToScVal(amountBigInt, { type: "i128" }),
+      nativeToScVal(amountBigInt, { type: "i128" })
     );
   }
 
@@ -355,10 +388,12 @@ export class InvoiceEscrowContractService {
    */
   public buildSettleEscrowTx(invoiceId: string): xdr.Operation {
     const safeInvoiceId = sanitizeString(invoiceId, "invoiceId");
-    return this.contract.call(
-      "settle_escrow",
-      nativeToScVal(safeInvoiceId, { type: "symbol" }),
-    );
+
+    if (!invoiceId || typeof invoiceId !== "string" || !invoiceId.trim()) {
+      throw new Error("invoiceId is required.");
+    }
+
+    return this.contract.call("settle_escrow", nativeToScVal(safeInvoiceId, { type: "symbol" }));
   }
 
   /**
@@ -582,6 +617,81 @@ export class InvoiceEscrowContractService {
   }
 
   /**
+   * Settles an escrow on-chain by building, submitting, and waiting for confirmation
+   * of the `settle_escrow` transaction.
+   *
+   * @param invoiceId The invoice ID to settle
+   * @returns The transaction hash and ledger of the confirmed settlement
+   * @throws ServiceError if RPC is not configured, submission fails, or confirmation fails/times out
+   */
+  public async settleEscrowOnChain(invoiceId: string): Promise<{ transactionHash: string; ledger: number | null }> {
+    if (!this.rpcServer || !this.networkPassphrase || !this.platformSecretKey) {
+      throw new ServiceError(
+        "rpc_not_configured",
+        "Soroban RPC and signer configuration is incomplete for settlement",
+        503,
+      );
+    }
+
+    const safeInvoiceId = sanitizeString(invoiceId, "invoiceId");
+    const operation = this.contract.call("settle_escrow", nativeToScVal(safeInvoiceId, { type: "symbol" }));
+
+    const signer = Keypair.fromSecret(this.platformSecretKey);
+    const account = await this.rpcServer.getAccount(signer.publicKey());
+
+    const transaction = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(operation)
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.rpcServer.prepareTransaction(transaction);
+    prepared.sign(signer);
+
+    const submitted = await this.withRpcRetry(
+      () => this.rpcServer!.sendTransaction(prepared),
+      "sendTransaction",
+    );
+
+    if (submitted.status === "ERROR") {
+      throw new ServiceError(
+        "on_chain_settlement_failed",
+        "On-chain settlement transaction rejected",
+        502,
+        { errorResult: submitted.errorResult },
+      );
+    }
+
+    const confirmation = await this.waitForTransactionConfirmation(submitted.hash);
+    if (confirmation.status === "FAILED") {
+      throw new ServiceError(
+        "on_chain_settlement_failed",
+        "On-chain settlement transaction failed",
+        502,
+        { transactionHash: submitted.hash },
+      );
+    }
+    if (confirmation.status === "NOT_FOUND") {
+      throw new ServiceError(
+        "on_chain_settlement_timeout",
+        "Timed out waiting for on-chain settlement confirmation",
+        504,
+      );
+    }
+
+    this.logger.info("Soroban escrow settled successfully on-chain.", {
+      invoiceId: safeInvoiceId,
+      sorobanContractId: this.contractId,
+      transactionHash: submitted.hash,
+      ledger: confirmation.ledger,
+    });
+
+    return { transactionHash: submitted.hash, ledger: confirmation.ledger };
+  }
+
+  /**
    * Creates/initializes an escrow on-chain and logs the structured completion
    * event.
    *
@@ -592,9 +702,7 @@ export class InvoiceEscrowContractService {
    * `sellerAddress`, `amountStroops`) is logged — no secret keys, signing
    * seeds, or auth tokens are ever written to logs.
    */
-  public async createEscrowOnChain(
-    input: CreateEscrowInput,
-  ): Promise<CreateEscrowResult> {
+public async createEscrowOnChain(input: CreateEscrowInput): Promise<CreateEscrowResult> {
     const amountBigInt = this.parseStroopAmount(input.amountStroops, "amountStroops");
     this.parseDueDate(input.dueDateTimestamp);
 

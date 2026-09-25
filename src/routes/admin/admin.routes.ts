@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { DataSource } from "typeorm";
+import { Request, Response, NextFunction } from "express";
 
 import { ipWhitelistMiddleware } from "@/middleware/ip-whitelist.middleware";
 import { createAuthMiddleware } from "@/middleware/auth.middleware";
@@ -9,6 +10,7 @@ import type { AclService } from "@/services/acl.service";
 import type { InvoiceService } from "@/services/invoice.service";
 import type { InvoiceExtensionService } from "@/services/invoice-extension.service";
 import type { AdminMetricsService, AdminMetricsQuery } from "@/services/admin-metrics.service";
+import type { AdminSettlementService } from "@/services/admin-settlement.service";
 import { approveKYC } from "./approve-kyc";
 import { rejectKYC } from "./reject-kyc";
 import { revokeKYC } from "./revoke-kyc";
@@ -19,6 +21,7 @@ import { createRoyaltyAnalyticsService } from "@/services/royalty-analytics.serv
 import { createAdminRoyaltiesRouter } from "./royalties.routes";
 import { createAnalyticsSnapshotService } from "@/services/analytics-snapshot.service";
 import { createAdminAnalyticsTrendsRouter } from "./analytics-trends.routes";
+import { createAdminSettlementRouter } from "./settlement.routes";
 import { AppError } from "@/utils/http-error";
 import { logger } from "@/observability/logger";
 import type { AuthenticatedRequest } from "@/types/auth";
@@ -32,6 +35,8 @@ export interface AdminRouterDependencies {
   extensionService?: InvoiceExtensionService;
   /** Issue #478 — platform metrics aggregation for the admin dashboard. */
   metricsService?: AdminMetricsService;
+  /** Optional: enables POST /invoices/:invoiceId/settle for admin settlement. */
+  adminSettlementService?: AdminSettlementService;
 }
 
 interface ExtensionReviewBody {
@@ -79,6 +84,22 @@ export function createAdminRouter({
   invoiceService,
   extensionService: _extensionService,
   metricsService: _metricsService,
+  adminSettlementService,
+}: AdminRouterDependencies): Router {
+}
+
+export function createAdminRouter({
+  dataSource,
+  allowedCidrs,
+  authService,
+  aclService,
+  invoiceService,
+<<<<<<< HEAD
+  extensionService: _extensionService,
+  metricsService: _metricsService,
+=======
+  adminSettlementService,
+>>>>>>> ffe907b (feat(admin): add settlement endpoint for invoice repayment and investor payouts)
 }: AdminRouterDependencies): Router {
   const router = Router();
 
@@ -135,6 +156,7 @@ export function createAdminRouter({
     });
   }
 
+<<<<<<< HEAD
   // ---- Integration ACL projected from ACLUpdated events ----
   if (aclService) {
     const acl = createAclController(aclService);
@@ -221,6 +243,10 @@ export function createAdminRouter({
       return createAdminAnalyticsTrendsRouter({ analyticsSnapshotService });
     })
   );
+
+  if (adminSettlementService) {
+    router.use("/", createAdminSettlementRouter({ adminSettlementService }));
+  }
 
   return router;
 }
