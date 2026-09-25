@@ -50,7 +50,6 @@ export class InvestorPayout {
     enum: InvestorPayoutStatus,
     default: InvestorPayoutStatus.PENDING,
   })
-  @Index("idx_investor_payouts_status")
   status!: InvestorPayoutStatus;
 
   @Column({ name: "failure_reason", type: "text", nullable: true })
