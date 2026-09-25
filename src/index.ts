@@ -21,6 +21,7 @@ import { createIPFSService } from "./services/ipfs.service";
 import { createInvestmentService } from "./services/investment.service";
 import { createSettlementService } from "./services/settlement.service";
 import { createMarketplaceService } from "./services/marketplace.service";
+import { createSecondaryMarketService } from "./services/secondary-market.service";
 import { KycService } from "./services/kyc.service";
 import { XlmUsdRateService } from "./services/xlm-usd-rate.service";
 import { PaymentDistributorContractService } from "./services/stellar/payment-distributor-contract.service";
@@ -90,6 +91,7 @@ export async function bootstrap(): Promise<{ server: Server }> {
     invoiceStateMachine
   );
   const marketplaceService = createMarketplaceService(dataSource);
+  const secondaryMarketService = createSecondaryMarketService(dataSource);
   const kycService = new KycService(dataSource, config.kyc.webhookSecret ?? "", logger);
   const xlmUsdRateService = new XlmUsdRateService({
     redisUrl: config.cache.redisUrl,
@@ -111,6 +113,7 @@ export async function bootstrap(): Promise<{ server: Server }> {
     investmentService,
     settlementService,
     marketplaceService,
+    secondaryMarketService,
     kycService,
     xlmUsdRateService,
     config,

@@ -63,3 +63,13 @@ export enum NotificationType {
   INVOICE_SETTLED = "invoice_settled",
   INVESTMENT_CREATED = "investment_created",
 }
+
+export enum SecondaryMarketListingStatus {
+  ACTIVE = "active",
+  CANCELLED = "cancelled",
+  SOLD = "sold",
+}
+
+export enum SecondaryMarketPurchaseStatus {
+  COMPLETED = "completed",
+}

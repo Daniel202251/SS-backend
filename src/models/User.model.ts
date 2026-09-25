@@ -77,6 +77,9 @@ export class User {
   @OneToMany("Investment", "investor")
   investments!: import("./Investment.model").Investment[];
 
+  @OneToMany("SecondaryMarketListing", "seller")
+  secondaryMarketListings!: import("./SecondaryMarketListing.model").SecondaryMarketListing[];
+
   @OneToMany("Transaction", "user")
   transactions!: import("./Transaction.model").Transaction[];
 
