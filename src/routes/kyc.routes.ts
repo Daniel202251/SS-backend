@@ -19,5 +19,7 @@ export function createKycRouter(service: KycService, authService: AuthService): 
   const router = Router();
   const controller = createKycController(service);
   router.post("/submit", createAuthMiddleware(authService), controller.submit);
+  router.get("/status", createAuthMiddleware(authService), controller.status);
+  router.patch("/:id/review", controller.review);
   return router;
 }
