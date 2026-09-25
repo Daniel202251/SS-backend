@@ -128,7 +128,7 @@ describe("createAuthMiddleware", () => {
     expect(next).toHaveBeenCalledWith(thrown);
   });
 
-  it("wraps a non-HttpError service failure into a 401", async () => {
+  it("wraps a non-HttpError service failure into a 500", async () => {
     const authService = {
       getCurrentUser: jest.fn().mockRejectedValue(new Error("db unreachable")),
     } as unknown as AuthService;
@@ -138,9 +138,10 @@ describe("createAuthMiddleware", () => {
 
     await middleware(req, {} as never, next);
 
-    const err = next.mock.calls[0][0] as HttpError;
-    expect(err).toBeInstanceOf(HttpError);
-    expect(err.statusCode).toBe(401);
+    const err = next.mock.calls[0][0] as AppError;
+    expect(err).toBeInstanceOf(AppError);
+    expect(err.statusCode).toBe(500);
+    expect(err.code).toBe("PROCESSING_FAILED");
   });
 
   it("rejects a missing Authorization header without calling the service", async () => {

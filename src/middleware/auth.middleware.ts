@@ -7,6 +7,7 @@ import type { AuthenticatedRequest } from "../types/auth";
 import { AppError, HttpError } from "../utils/http-error";
 import { UserType, KYCStatus } from "../types/enums";
 import { buildAuthFailureDetails, classifyJwtError } from "../lib/auth-failure";
+import { logger } from "../observability/logger";
 
 interface AuthTokenPayload {
   sub: string;
@@ -40,13 +41,8 @@ export function createAuthMiddleware(authService: AuthService) {
         return;
       }
 
-      next(
-        new HttpError(
-          401,
-          "Invalid or expired token.",
-          buildAuthFailureDetails(token, classifyJwtError(error))
-        )
-      );
+      logger.error('Failed to process', { error });
+      next(new AppError(500, 'Processing failed', 'PROCESSING_FAILED'));
     }
   };
 }
@@ -137,3 +133,4 @@ export function checkKycVerified(req: Request, _res: Response, next: NextFunctio
   }
   next();
 }
+
