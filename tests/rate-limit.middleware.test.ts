@@ -1,7 +1,7 @@
 import express from "express";
 import request from "supertest";
 import type { Store } from "express-rate-limit";
-import { createRateLimitMiddleware } from "../src/middleware/rate-limit.middleware";
+import { applyRateLimiters, createRateLimitMiddleware } from "../src/middleware/rate-limit.middleware";
 import { createErrorMiddleware } from "../src/middleware/error.middleware";
 import type { AppLogger } from "../src/observability/logger";
 
@@ -91,5 +91,53 @@ describe("global rate limit middleware", () => {
     expect(() => createRateLimitMiddleware(createLogger(), options)).toThrow(
       "must be a positive integer"
     );
+  });
+});
+
+describe("applyRateLimiters", () => {
+  function createAppWithLimiters(
+    logger: AppLogger,
+    config?: Parameters<typeof applyRateLimiters>[2]
+  ) {
+    const app = express();
+    applyRateLimiters(app, logger, config);
+    app.get("/resource", (_req, res) => res.json({ ok: true }));
+    app.get("/api/v1/auth/me", (_req, res) => res.json({ ok: true }));
+    app.use(createErrorMiddleware(logger));
+    return app;
+  }
+
+  it("applies the global limiter to every route when no auth config is given", async () => {
+    const logger = createLogger();
+    const app = createAppWithLimiters(logger, { global: { windowMs: 60_000, max: 1 } });
+
+    await request(app).get("/resource").expect(200);
+    await request(app).get("/resource").expect(429);
+  });
+
+  it("enforces a stricter auth-path limit on top of the global one (#385/#388)", async () => {
+    const logger = createLogger();
+    const app = createAppWithLimiters(logger, {
+      global: { windowMs: 60_000, max: 100 },
+      auth: { windowMs: 60_000, max: 1, code: "AUTH_RATE_LIMIT_EXCEEDED" },
+    });
+
+    // The global limit (100) would not trip here, but the auth-scoped one (1) does.
+    await request(app).get("/api/v1/auth/me").expect(200);
+    const limited = await request(app).get("/api/v1/auth/me").expect(429);
+    expect(limited.body.error.code).toBe("AUTH_RATE_LIMIT_EXCEEDED");
+
+    // A route outside the auth prefix is unaffected by the auth-scoped limiter.
+    await request(app).get("/resource").expect(200);
+  });
+
+  it("does not affect non-auth routes when only auth config is given", async () => {
+    const logger = createLogger();
+    const app = createAppWithLimiters(logger, {
+      auth: { windowMs: 60_000, max: 1 },
+    });
+
+    await request(app).get("/resource").expect(200);
+    await request(app).get("/resource").expect(200);
   });
 });
