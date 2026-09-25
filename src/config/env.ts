@@ -72,6 +72,16 @@ export interface AppConfig {
     invoiceDetailTtlSeconds: number;
     enabled: boolean;
   };
+  rates: {
+    xlmUsd: {
+      horizonUrl: string;
+      refreshIntervalMs: number;
+      cacheTtlSeconds: number;
+      staleAfterMs: number;
+      assetCode: string;
+      assetIssuer?: string;
+    };
+  };
 }
 
 // ---------------- DEFAULTS ----------------
@@ -84,6 +94,9 @@ const DEFAULT_METRICS_ENABLED = true;
 const DEFAULT_CACHE_ENABLED = true;
 const DEFAULT_CACHE_TTL_INVOICES_LIST = 30; // 30 seconds
 const DEFAULT_CACHE_TTL_INVOICE_DETAIL = 60; // 60 seconds
+const DEFAULT_XLM_USD_RATE_REFRESH_INTERVAL_MS = 60 * 1000;
+const DEFAULT_XLM_USD_RATE_CACHE_TTL_SECONDS = 60;
+const DEFAULT_XLM_USD_RATE_STALE_AFTER_MS = 5 * 60 * 1000;
 
 const DEFAULT_RECONCILIATION_ENABLED = false;
 const DEFAULT_RECONCILIATION_INTERVAL_MS = 30 * 1000;
@@ -319,6 +332,30 @@ export function getConfig(): AppConfig {
         "CACHE_TTL_INVOICE_DETAIL"
       ),
       enabled: parseBoolean(process.env.CACHE_ENABLED, DEFAULT_CACHE_ENABLED, "CACHE_ENABLED"),
+    },
+
+    rates: {
+      xlmUsd: {
+        horizonUrl:
+          process.env.STELLAR_HORIZON_URL ?? process.env.HORIZON_URL ?? "https://horizon.stellar.org",
+        refreshIntervalMs: parsePositiveInteger(
+          process.env.XLM_USD_RATE_REFRESH_INTERVAL_MS,
+          DEFAULT_XLM_USD_RATE_REFRESH_INTERVAL_MS,
+          "XLM_USD_RATE_REFRESH_INTERVAL_MS"
+        ),
+        cacheTtlSeconds: parsePositiveInteger(
+          process.env.XLM_USD_RATE_CACHE_TTL_SECONDS,
+          DEFAULT_XLM_USD_RATE_CACHE_TTL_SECONDS,
+          "XLM_USD_RATE_CACHE_TTL_SECONDS"
+        ),
+        staleAfterMs: parsePositiveInteger(
+          process.env.XLM_USD_RATE_STALE_AFTER_MS,
+          DEFAULT_XLM_USD_RATE_STALE_AFTER_MS,
+          "XLM_USD_RATE_STALE_AFTER_MS"
+        ),
+        assetCode: process.env.XLM_USD_RATE_ASSET_CODE ?? "USD",
+        assetIssuer: process.env.XLM_USD_RATE_ASSET_ISSUER || undefined,
+      },
     },
   };
 }

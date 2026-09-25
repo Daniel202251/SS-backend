@@ -18,6 +18,7 @@ import { createInvestmentRouter } from "./routes/investment.routes";
 import { createSettlementRouter } from "./routes/settlement.routes";
 import { createMarketplaceRouter } from "./routes/marketplace.routes";
 import { createAdminRouter } from "./routes/admin/admin.routes";
+import { createXlmUsdRateRouter } from "./routes/xlm-usd-rate.routes";
 import { createContractGuardService } from "./services/stellar/contract-guard.service";
 
 import type { AuthService } from "./services/auth.service";
@@ -27,6 +28,7 @@ import type { InvestmentService } from "./services/investment.service";
 import type { SettlementService } from "./services/settlement.service";
 import type { MarketplaceService } from "./services/marketplace.service";
 import type { KycService } from "./services/kyc.service";
+import type { XlmUsdRateService } from "./services/xlm-usd-rate.service";
 
 import dataSource from "./config/database";
 
@@ -64,6 +66,7 @@ export interface AppDependencies {
   settlementService?: SettlementService;
   marketplaceService?: MarketplaceService;
   kycService?: KycService;
+  xlmUsdRateService?: XlmUsdRateService;
   logger?: AppLogger;
   metricsEnabled?: boolean;
   metricsRegistry?: MetricsRegistry;
@@ -90,6 +93,7 @@ export function createApp({
   settlementService,
   marketplaceService,
   kycService,
+  xlmUsdRateService,
   logger: appLogger = logger,
   metricsEnabled = true,
   metricsRegistry = new MetricsRegistry(),
@@ -237,6 +241,10 @@ export function createApp({
 
   if (marketplaceService) {
     app.use("/api/v1/marketplace", createMarketplaceRouter({ marketplaceService }));
+  }
+
+  if (xlmUsdRateService) {
+    app.use("/rates", createXlmUsdRateRouter({ xlmUsdRateService }));
   }
 
   if (config?.admin?.ipWhitelist?.length) {
