@@ -106,7 +106,11 @@ describe("checkContractNotPaused", () => {
       logger: silentLogger,
     })(req, res, next);
 
-    expect(next).toHaveBeenCalledWith(failure);
+    expect(next).toHaveBeenCalledWith(expect.any(Error));
+    const err = (next as jest.Mock).mock.calls[0][0];
+    expect(err.statusCode).toBe(500);
+    expect(err.code).toBe("PROCESSING_FAILED");
+    expect(err.message).toBe("Processing failed");
     expect(resMock.status).not.toHaveBeenCalled();
   });
 

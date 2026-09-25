@@ -3,6 +3,8 @@ import type { ContractGuardService } from "../services/stellar/contract-guard.se
 import type { AppLogger } from "../observability/logger";
 import { logger as globalLogger } from "../observability/logger";
 
+import { AppError } from "../utils/http-error";
+
 export interface ContractPauseGuardOptions {
   contractGuardService: ContractGuardService;
   /** Contract to check. When null the guard is inert and every request passes. */
@@ -59,10 +61,8 @@ export function checkContractNotPaused({
 
       next();
     } catch (error) {
-      // The service already degrades gracefully on RPC failure, so reaching
-      // here means something unexpected broke. Fail the request rather than
-      // waving it through on an unknown pause state.
-      next(error);
+      logger.error('Failed to process', { error });
+      next(new AppError(500, 'Processing failed', 'PROCESSING_FAILED'));
     }
   };
 }
