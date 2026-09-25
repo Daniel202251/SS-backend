@@ -3,10 +3,13 @@ import jwt from "jsonwebtoken";
 import {
   MAX_BEARER_TOKEN_LENGTH,
   authenticateJWT,
+  checkKycVerified,
   createAuthMiddleware,
   extractBearerToken,
+  requireKYC,
 } from "@/middleware/auth.middleware";
 import type { AuthService } from "@/services/auth.service";
+import { KYCStatus } from "@/types/enums";
 import type { AuthenticatedRequest } from "@/types/auth";
 import { AppError, HttpError } from "@/utils/http-error";
 
@@ -34,6 +37,10 @@ function createRequest(authorization?: unknown) {
 function forwardedError(next: jest.Mock) {
   expect(next).toHaveBeenCalledTimes(1);
   return next.mock.calls[0][0] as HttpError | AppError | undefined;
+}
+
+function makeReq(overrides: Record<string, unknown> = {}): AuthenticatedRequest {
+  return { headers: {}, ...overrides } as unknown as AuthenticatedRequest;
 }
 
 function authService(getCurrentUser: jest.Mock): AuthService {
@@ -334,5 +341,78 @@ describe("createAuthMiddleware", () => {
     ["a non-positive timeout", authService(jest.fn()), { timeoutMs: 0 }, "positive integer"],
   ])("rejects %s at construction", (_label, service, options, message) => {
     expect(() => createAuthMiddleware(service as AuthService, options)).toThrow(message);
+  });
+});
+
+describe("requireKYC", () => {
+  it("allows through when skipVerification is true, even with no user", () => {
+    const req = makeReq();
+    const next = jest.fn();
+
+    requireKYC(true)(req, {} as never, next);
+
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it("rejects with 401 when there is no authenticated user", () => {
+    const req = makeReq();
+    const next = jest.fn();
+
+    requireKYC(false)(req, {} as never, next);
+
+    const err = next.mock.calls[0][0] as HttpError;
+    expect(err.statusCode).toBe(401);
+  });
+
+  it("rejects with 403 when the user's KYC is not approved", () => {
+    const req = makeReq({ user: { kycStatus: KYCStatus.PENDING } });
+    const next = jest.fn();
+
+    requireKYC(false)(req, {} as never, next);
+
+    const err = next.mock.calls[0][0] as HttpError;
+    expect(err.statusCode).toBe(403);
+  });
+
+  it("allows through when the user's KYC is approved", () => {
+    const req = makeReq({ user: { kycStatus: KYCStatus.APPROVED } });
+    const next = jest.fn();
+
+    requireKYC(false)(req, {} as never, next);
+
+    expect(next).toHaveBeenCalledWith();
+  });
+});
+
+describe("checkKycVerified", () => {
+  it("rejects with 401 when there is no authenticated user", () => {
+    const req = makeReq();
+    const next = jest.fn();
+
+    checkKycVerified(req, {} as never, next);
+
+    const err = next.mock.calls[0][0] as HttpError;
+    expect(err.statusCode).toBe(401);
+  });
+
+  it("rejects with an AppError(403) when KYC is not approved", () => {
+    const req = makeReq({ user: { kycStatus: KYCStatus.PENDING } });
+    const next = jest.fn();
+
+    checkKycVerified(req, {} as never, next);
+
+    const err = next.mock.calls[0][0] as AppError;
+    expect(err).toBeInstanceOf(AppError);
+    expect(err.statusCode).toBe(403);
+    expect(err.code).toBe("KYC_NOT_APPROVED");
+  });
+
+  it("allows through when KYC is approved", () => {
+    const req = makeReq({ user: { kycStatus: KYCStatus.APPROVED } });
+    const next = jest.fn();
+
+    checkKycVerified(req, {} as never, next);
+
+    expect(next).toHaveBeenCalledWith();
   });
 });

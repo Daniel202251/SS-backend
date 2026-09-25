@@ -92,8 +92,16 @@ export function classifyJwtError(error: unknown): AuthFailureReason {
   }
 
   if (error instanceof jwt.JsonWebTokenError) {
-    if (error.message.toLowerCase().includes("invalid signature")) {
+    const message = error.message.toLowerCase();
+    if (message.includes("invalid signature")) {
       return "invalid_signature";
+    }
+    // jsonwebtoken throws this exact JsonWebTokenError message when the
+    // token isn't even well-formed JWT (not base64/dot-delimited, or the
+    // header/payload segments aren't valid JSON) — distinct from a
+    // structurally valid token with a bad signature or claims.
+    if (message.includes("malformed")) {
+      return "unparseable_token";
     }
     return "invalid_token";
   }

@@ -317,8 +317,16 @@ export function createAuthRateLimitMiddleware(
   return createRateLimitMiddleware(logger, mergeOptions(DEFAULT_VERIFY_LIMIT, overrides));
 }
 
+/** Path prefix the auth router is mounted under (see app.ts). */
+const AUTH_ROUTE_PREFIX = "/api/v1/auth";
+
+interface RateLimitableApp {
+  use(middleware: unknown): void;
+  use(path: string, middleware: unknown): void;
+}
+
 export function applyRateLimiters(
-  app: { use: (middleware: unknown) => void },
+  app: RateLimitableApp,
   logger: AppLogger,
   config?: {
     global?: Partial<RateLimitOptions>;
@@ -330,5 +338,18 @@ export function applyRateLimiters(
     mergeOptions(DEFAULT_GLOBAL_LIMIT, config?.global)
   );
   app.use(globalLimiter);
+
+  // config.auth was accepted here but silently dropped — callers configuring
+  // a stricter auth-path limiter got the global one instead (#385/#388).
+  // Mount it on AUTH_ROUTE_PREFIX so it actually takes effect, layered on
+  // top of (not instead of) the global limiter above.
+  if (config?.auth) {
+    const authLimiter = createRateLimitMiddleware(
+      logger,
+      mergeOptions(DEFAULT_GLOBAL_LIMIT, config.auth)
+    );
+    app.use(AUTH_ROUTE_PREFIX, authLimiter);
+  }
+
   return globalLimiter;
 }
