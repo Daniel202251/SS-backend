@@ -84,40 +84,52 @@ export function createRateLimitMiddleware(
     },
   });
 
-  return (req: ExpressRequest, res: Response, next: NextFunction) => {
-    limiter(req, res, (error?: unknown) => {
-      if (!error) {
-        next();
-        return;
-      }
+  return async (req: ExpressRequest, res: Response, next: NextFunction) => {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        limiter(req, res, (error?: unknown) => {
+          if (!error) {
+            resolve();
+            return;
+          }
 
+          if (error instanceof AppError) {
+            reject(error);
+            return;
+          }
+
+          logger.error("Rate limit store failed.", {
+            requestId: (req as ExpressRequest & { requestId?: string }).requestId,
+            method: req.method,
+            path: req.path,
+            store: options.store?.constructor?.name ?? "unknown",
+            error: error instanceof Error ? error.message : "Unknown rate limit store error",
+            failOpen: options.failOpenOnStoreError === true,
+          });
+
+          if (options.failOpenOnStoreError === true) {
+            resolve();
+            return;
+          }
+
+          reject(
+            new AppError(
+              503,
+              "Request throttling is temporarily unavailable. Please try again later.",
+              "RATE_LIMIT_STORE_UNAVAILABLE"
+            )
+          );
+        });
+      });
+      next();
+    } catch (error) {
       if (error instanceof AppError) {
         next(error);
         return;
       }
-
-      logger.error("Rate limit store failed.", {
-        requestId: (req as ExpressRequest & { requestId?: string }).requestId,
-        method: req.method,
-        path: req.path,
-        store: options.store?.constructor?.name ?? "unknown",
-        error: error instanceof Error ? error.message : "Unknown rate limit store error",
-        failOpen: options.failOpenOnStoreError === true,
-      });
-
-      if (options.failOpenOnStoreError === true) {
-        next();
-        return;
-      }
-
-      next(
-        new AppError(
-          503,
-          "Request throttling is temporarily unavailable. Please try again later.",
-          "RATE_LIMIT_STORE_UNAVAILABLE"
-        )
-      );
-    });
+      logger.error('Failed to process', { error });
+      next(new AppError(500, 'Processing failed', 'PROCESSING_FAILED'));
+    }
   };
 }
 
