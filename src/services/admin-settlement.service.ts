@@ -222,7 +222,7 @@ export class AdminSettlementService {
 
           return {
             invoiceId: invoice.id,
-            status: InvoiceStatus.SETTLED,
+            status: InvoiceStatus.SETTLED as const,
             repaymentAmount: repaymentAmount.toFixed(4),
             payouts,
             distributionTransactionHash,

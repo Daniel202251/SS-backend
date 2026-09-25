@@ -14,6 +14,12 @@ import { Invoice } from "./Invoice.model";
 import { User } from "./User.model";
 import { Investment } from "./Investment.model";
 
+export enum InvestorPayoutStatus {
+  PENDING = "pending",
+  COMPLETED = "completed",
+  FAILED = "failed",
+}
+
 @Entity("investor_payouts")
 @Index("idx_investor_payouts_invoice_id", ["invoiceId"])
 @Index("idx_investor_payouts_investor_id", ["investorId"])
@@ -73,10 +79,4 @@ export class InvestorPayout {
   @ManyToOne(() => Investment, { onDelete: "CASCADE" })
   @JoinColumn({ name: "investment_id" })
   investment!: Investment;
-}
-
-export enum InvestorPayoutStatus {
-  PENDING = "pending",
-  COMPLETED = "completed",
-  FAILED = "failed",
 }
