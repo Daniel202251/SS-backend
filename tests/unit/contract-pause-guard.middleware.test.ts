@@ -7,6 +7,8 @@ import type { ContractGuardService } from "@/services/stellar/contract-guard.ser
 
 // Valid StrKey contract id (checksummed); the guard rejects malformed ids at startup.
 const CONTRACT_ID = "CADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQP5KR";
+const TOKEN_CONTRACT_ID = "CAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQMCJ";
+const DISTRIBUTOR_CONTRACT_ID = "CAEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQSCIJBEEQTD2L";
 
 function createContext() {
   const res = {
@@ -267,5 +269,139 @@ describe("checkContractNotPaused", () => {
     await middleware(allowed.req, allowed.res, allowed.next);
     expect(allowed.next).toHaveBeenCalledWith();
     expect(allowed.resMock.status).not.toHaveBeenCalled();
+  });
+});
+
+describe("checkContractNotPaused with several contracts", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  it("checks every contract concurrently and passes when none is paused", async () => {
+    const started: string[] = [];
+    const gates = new Map<string, ReturnType<typeof deferred<boolean>>>();
+    const check = jest.fn((id: string) => {
+      started.push(id);
+      const gate = deferred<boolean>();
+      gates.set(id, gate);
+      return gate.promise;
+    });
+    const { req, res, next } = createContext();
+
+    const run = checkContractNotPaused({
+      contractGuardService: guardService(check),
+      contractId: CONTRACT_ID,
+      contractIds: [TOKEN_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID],
+      logger: silentLogger,
+    })(req, res, next);
+
+    // All reads are in flight before any of them has answered.
+    await new Promise((r) => setImmediate(r));
+    expect(started).toEqual([CONTRACT_ID, TOKEN_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID]);
+
+    gates.forEach((gate) => gate.resolve(false));
+    await run;
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it("blocks as soon as one contract reports paused without waiting for slower reads", async () => {
+    const warn = jest.fn();
+    const check = jest.fn((id: string) =>
+      id === TOKEN_CONTRACT_ID ? Promise.resolve(true) : new Promise<boolean>(() => undefined)
+    );
+    const { req, res, next, resMock } = createContext();
+
+    await checkContractNotPaused({
+      contractGuardService: guardService(check),
+      contractIds: [CONTRACT_ID, TOKEN_CONTRACT_ID],
+      logger: { ...(silentLogger as object), warn } as never,
+      timeoutMs: 1_000,
+    })(req, res, next);
+
+    expect(resMock.status).toHaveBeenCalledWith(503);
+    expect(warn).toHaveBeenCalledWith(
+      "Request blocked: smart contract is paused",
+      expect.objectContaining({ contract_id: TOKEN_CONTRACT_ID })
+    );
+  });
+
+  it("prefers a paused reading over another contract's failed read", async () => {
+    const check = jest.fn((id: string) =>
+      id === CONTRACT_ID ? Promise.reject(new Error("rpc down")) : Promise.resolve(true)
+    );
+    const { req, res, next, resMock } = createContext();
+
+    await checkContractNotPaused({
+      contractGuardService: guardService(check),
+      contractIds: [CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID],
+      logger: silentLogger,
+    })(req, res, next);
+
+    expect(resMock.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.objectContaining({ code: "CONTRACT_PAUSED" }) })
+    );
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a read fails and no contract is paused", async () => {
+    const check = jest.fn((id: string) =>
+      id === TOKEN_CONTRACT_ID ? Promise.reject(new Error("rpc down")) : Promise.resolve(false)
+    );
+    const { req, res, next } = createContext();
+
+    await checkContractNotPaused({
+      contractGuardService: guardService(check),
+      contractIds: [CONTRACT_ID, TOKEN_CONTRACT_ID],
+      logger: silentLogger,
+    })(req, res, next);
+
+    expect(next.mock.calls[0][0]).toMatchObject({
+      statusCode: 503,
+      code: "CONTRACT_PAUSE_CHECK_FAILED",
+    });
+  });
+
+  it("de-duplicates contracts and ignores blanks", async () => {
+    const check = jest.fn().mockResolvedValue(false);
+    const { req, res, next } = createContext();
+
+    await checkContractNotPaused({
+      contractGuardService: guardService(check),
+      contractId: CONTRACT_ID,
+      contractIds: [` ${CONTRACT_ID} `, null, undefined, "", TOKEN_CONTRACT_ID],
+      logger: silentLogger,
+    })(req, res, next);
+
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(check.mock.calls.map(([id]) => id)).toEqual([CONTRACT_ID, TOKEN_CONTRACT_ID]);
+  });
+
+  it("is inert when every configured contract is blank", async () => {
+    const check = jest.fn();
+    const { req, res, next } = createContext();
+
+    await checkContractNotPaused({
+      contractGuardService: guardService(check),
+      contractId: null,
+      contractIds: [null, "  "],
+      logger: silentLogger,
+    })(req, res, next);
+
+    expect(check).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it("rejects a malformed entry in contractIds at construction", () => {
+    expect(() =>
+      checkContractNotPaused({
+        contractGuardService: guardService(jest.fn()),
+        contractIds: [CONTRACT_ID, "CTOKEN"],
+        logger: silentLogger,
+      })
+    ).toThrow("not a valid Soroban contract id");
   });
 });

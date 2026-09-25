@@ -21,7 +21,13 @@ export const PAUSED_RETRY_AFTER_SECONDS = 15;
 export interface ContractPauseGuardOptions {
   contractGuardService: ContractGuardService;
   /** Contract to check. When null the guard is inert and every request passes. */
-  contractId: string | null;
+  contractId?: string | null;
+  /**
+   * Additional contracts the request depends on (for example escrow, token and
+   * payment distributor). The request is blocked if any of them is paused.
+   * Combined with `contractId`; blanks and duplicates are ignored.
+   */
+  contractIds?: ReadonlyArray<string | null | undefined>;
   logger?: AppLogger;
   /** Override for the pause-state read timeout. */
   timeoutMs?: number;
@@ -62,6 +68,75 @@ function normaliseContractId(contractId: string | null | undefined): string | nu
   return trimmed;
 }
 
+/** Validated, de-duplicated list of contracts to guard, in configuration order. */
+function resolveGuardedContracts(
+  contractId: string | null | undefined,
+  contractIds: ReadonlyArray<string | null | undefined> | undefined
+): string[] {
+  if (contractIds !== undefined && !Array.isArray(contractIds)) {
+    throw new Error("Contract pause guard contractIds must be an array.");
+  }
+
+  const guarded = new Set<string>();
+  for (const candidate of [contractId, ...(contractIds ?? [])]) {
+    const normalised = normaliseContractId(candidate);
+    if (normalised) {
+      guarded.add(normalised);
+    }
+  }
+  return [...guarded];
+}
+
+/**
+ * Reads every contract's pause state concurrently and resolves with the first
+ * contract found paused, or null when none are.
+ *
+ * Reads run in parallel so N contracts cost one round trip, not N. A paused
+ * reading is definitive, so it short-circuits without waiting for slower
+ * reads — and wins over a failed read of another contract. Only when no
+ * contract is paused does a failed read reject the check.
+ */
+function findPausedContract(
+  service: ContractGuardService,
+  contractIds: readonly string[]
+): Promise<string | null> {
+  return new Promise<string | null>((resolve, reject) => {
+    let pending = contractIds.length;
+    let firstError: unknown;
+    let hasError = false;
+
+    const settle = () => {
+      pending -= 1;
+      if (pending > 0) return;
+      if (hasError) {
+        reject(firstError);
+      } else {
+        resolve(null);
+      }
+    };
+
+    for (const id of contractIds) {
+      Promise.resolve()
+        .then(() => service.checkContractPauseState(id))
+        .then(
+          (paused) => {
+            if (paused === true) {
+              resolve(id);
+            }
+            settle();
+          },
+          (error: unknown) => {
+            if (!hasError) {
+              hasError = true;
+              firstError = error;
+            }
+            settle();
+          }
+        );
+    }
+  });
+}
+
 function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new PauseCheckTimeoutError(timeoutMs)), timeoutMs);
@@ -78,7 +153,8 @@ function requestPath(req: Request): string {
 }
 
 /**
- * Blocks requests while the underlying Soroban contract is paused.
+ * Blocks requests while the underlying Soroban contract — or any of several
+ * contracts the request depends on — is paused.
  *
  * When contracts are paused on-chain — during a security investigation, say —
  * any funding, investment or settlement call the API accepts would fail at
@@ -100,12 +176,18 @@ function requestPath(req: Request): string {
 export function checkContractNotPaused({
   contractGuardService,
   contractId,
+  contractIds,
   logger = globalLogger,
   timeoutMs = DEFAULT_PAUSE_CHECK_TIMEOUT_MS,
 }: ContractPauseGuardOptions) {
-  const guardedContractId = normaliseContractId(contractId);
+  const guardedContractIds = resolveGuardedContracts(contractId, contractIds);
+  const contractIdForLogs =
+    guardedContractIds.length === 1 ? guardedContractIds[0] : guardedContractIds.join(",");
 
-  if (guardedContractId && typeof contractGuardService?.checkContractPauseState !== "function") {
+  if (
+    guardedContractIds.length > 0 &&
+    typeof contractGuardService?.checkContractPauseState !== "function"
+  ) {
     throw new Error("Contract pause guard requires a contractGuardService.");
   }
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
@@ -113,18 +195,16 @@ export function checkContractNotPaused({
   }
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    if (!guardedContractId) {
+    if (guardedContractIds.length === 0) {
       next();
       return;
     }
 
     const startedAt = Date.now();
-    let paused: boolean;
+    let pausedContractId: string | null;
     try {
-      paused = await withTimeout(
-        Promise.resolve().then(() =>
-          contractGuardService.checkContractPauseState(guardedContractId)
-        ),
+      pausedContractId = await withTimeout(
+        findPausedContract(contractGuardService, guardedContractIds),
         timeoutMs
       );
     } catch (error) {
@@ -133,7 +213,7 @@ export function checkContractNotPaused({
       // request rather than waving it through on an unknown pause state.
       const timedOut = error instanceof PauseCheckTimeoutError;
       logger.error("Contract pause state check failed; rejecting request", {
-        contract_id: guardedContractId,
+        contract_id: contractIdForLogs,
         method: req.method,
         path: requestPath(req),
         reason: timedOut ? "timeout" : "error",
@@ -151,13 +231,13 @@ export function checkContractNotPaused({
       return;
     }
 
-    if (!paused) {
+    if (!pausedContractId) {
       next();
       return;
     }
 
     logger.warn("Request blocked: smart contract is paused", {
-      contract_id: guardedContractId,
+      contract_id: pausedContractId,
       method: req.method,
       path: requestPath(req),
     });
