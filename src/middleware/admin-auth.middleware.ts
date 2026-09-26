@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { HttpError } from "@/utils/http-error";
 import { buildAuthFailureDetails, classifyJwtError } from "@/lib/auth-failure";
 import type { AuthenticatedRequest } from "@/types/auth";
+import { UserType, KYCStatus } from "@/types/enums";
 
 interface AdminTokenPayload {
   sub: string;
@@ -49,8 +50,8 @@ export function authenticateAdminJWT(req: Request, _res: Response, next: NextFun
       id: payload.sub,
       stellarAddress: payload.sub,
       email: null,
-      userType: "both" as any,
-      kycStatus: "approved" as any,
+      userType: UserType.BOTH,
+      kycStatus: KYCStatus.APPROVED,
       isKycVerified: true,
       createdAt: new Date(payload.iat ? payload.iat * 1000 : Date.now()),
       updatedAt: new Date(),
