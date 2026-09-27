@@ -2,6 +2,10 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { DataSource } from "typeorm";
 
 import { ipWhitelistMiddleware } from "@/middleware/ip-whitelist.middleware";
+import { createAuthMiddleware } from "@/middleware/auth.middleware";
+import { requireAdminRole } from "@/middleware/require-admin-role.middleware";
+import type { AuthService } from "@/services/auth.service";
+import type { AclService } from "@/services/acl.service";
 import type { InvoiceService } from "@/services/invoice.service";
 import type { InvoiceExtensionService } from "@/services/invoice-extension.service";
 import type { AdminMetricsService } from "@/services/admin-metrics.service";
@@ -35,7 +39,6 @@ export function createAdminRouter({
   metricsService,
 }: AdminRouterDependencies): Router {
   const router = Router();
-  const ipWhitelist = ipWhitelistMiddleware(allowedCidrs);
 
   // Admin-only: IP whitelist is the role gate for this router (issue #478).
   router.use(ipWhitelist);

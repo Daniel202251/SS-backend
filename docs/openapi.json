@@ -117,6 +117,311 @@
             "description": "Recorded in the KYC audit log."
           }
         }
+      },
+      "BuyLimitResponse": {
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string"
+          },
+          "maxBuyPerTx": {
+            "type": "string",
+            "description": "Maximum amount purchasable in a single buy transaction, in base units"
+          },
+          "maxBuyPerDay": {
+            "type": "string",
+            "description": "Maximum amount purchasable per wallet per day, in base units"
+          },
+          "currentSupply": {
+            "type": "string",
+            "description": "Current key supply, in base units"
+          },
+          "curveType": {
+            "type": "string"
+          },
+          "configVersion": {
+            "type": "integer"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "contractAddress": {
+            "type": "string"
+          },
+          "cachedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CreatorKeyDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BuyLimitResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "creatorId": {
+                "type": "string"
+              },
+              "creatorWallet": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ]
+      },
+      "CurveMigration": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "migrationId": {
+            "type": "string",
+            "description": "On-chain proposal id"
+          },
+          "keyId": {
+            "type": "string"
+          },
+          "proposalId": {
+            "type": "string"
+          },
+          "contractAddress": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "executed",
+              "expired"
+            ]
+          },
+          "proposedParams": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "appliedParams": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "timelockExpiry": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "timelockExpired": {
+            "type": "boolean"
+          },
+          "executable": {
+            "type": "boolean"
+          },
+          "proposedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "executedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "proposalTxHash": {
+            "type": "string",
+            "nullable": true
+          },
+          "executionTxHash": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CurveMigrationList": {
+        "type": "object",
+        "properties": {
+          "pending": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CurveMigration"
+            }
+          },
+          "executed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CurveMigration"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CurveMigration"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "AclEntry": {
+        "type": "object",
+        "properties": {
+          "contractAddress": {
+            "type": "string"
+          },
+          "permittedFunctions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "removed"
+            ]
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "removedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastLedger": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastTxHash": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "AclLogEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "contractAddress": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "add",
+              "remove"
+            ]
+          },
+          "permittedFunctions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ledgerSequence": {
+            "type": "string",
+            "nullable": true
+          },
+          "txHash": {
+            "type": "string",
+            "nullable": true
+          },
+          "actor": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AtomicSwap": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "swapId": {
+            "type": "string",
+            "description": "On-chain swap id"
+          },
+          "buyer": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "invoiceId": {
+                "type": "string",
+                "nullable": true
+              },
+              "amount": {
+                "type": "string"
+              }
+            }
+          },
+          "seller": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "invoiceId": {
+                "type": "string",
+                "nullable": true
+              },
+              "amount": {
+                "type": "string"
+              }
+            }
+          },
+          "fee": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "string"
+              },
+              "recipient": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "feeAmount": {
+            "type": "string"
+          },
+          "txHash": {
+            "type": "string",
+            "nullable": true
+          },
+          "ledgerSequence": {
+            "type": "string",
+            "nullable": true
+          },
+          "executedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   },
@@ -124,10 +429,18 @@
     "/api/v1/kyc/submit": {
       "post": {
         "summary": "Submit KYC verification",
-        "security": [{ "bearerAuth": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
         "responses": {
-          "201": { "description": "Verification submitted" },
-          "401": { "description": "Authentication required" }
+          "201": {
+            "description": "Verification submitted"
+          },
+          "401": {
+            "description": "Authentication required"
+          }
         }
       }
     },
@@ -137,11 +450,21 @@
         "description": "Updates verification and user KYC state after validating the provider HMAC signature.",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "type": "object" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
         },
         "responses": {
-          "204": { "description": "Webhook processed" },
-          "401": { "description": "Invalid webhook signature" }
+          "204": {
+            "description": "Webhook processed"
+          },
+          "401": {
+            "description": "Invalid webhook signature"
+          }
         }
       }
     },
@@ -335,6 +658,511 @@
           },
           "409": {
             "description": "User is not currently approved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/keys/{id}": {
+      "get": {
+        "summary": "Get creator key detail",
+        "description": "Returns the creator key configuration, including the per-transaction buy limit. Public read; the limit is enforced on-chain.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Creator key id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CreatorKeyDetail"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Creator key not found": {
+            "description": "Creator key not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "Bad Request": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/keys/{id}/buy-limit": {
+      "get": {
+        "summary": "Get per-transaction buy limit for a creator key",
+        "description": "Pre-trade check: returns the per-transaction buy cap (max_buy_per_tx) and the current key supply so the frontend can clamp the buy input before submitting a transaction. Public read, cached for 60 seconds and invalidated when a key configuration update event is indexed.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Creator key id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/BuyLimitResponse"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Creator key not found": {
+            "description": "Creator key not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "Bad Request": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/keys/{id}/curve-migrations": {
+      "get": {
+        "summary": "List bonding curve migrations for a creator key",
+        "description": "Returns the migration proposals indexed from CurveMigrationProposed / CurveMigrationExecuted events, each with the proposed parameters, timelock expiry and status. Executed migrations are visible to any authenticated user; migrations still behind the timelock are creator-only.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Creator key id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter by status; `pending` requires creator access",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "pending",
+                "executed"
+              ],
+              "default": "all"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/CurveMigrationList"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Creator access required": {
+            "description": "Creator access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "Authentication required": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "Bad Request": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/acl": {
+      "get": {
+        "summary": "Get the contract integration ACL",
+        "description": "Returns the whitelisted contract integrations and the functions each may call, projected from ACLUpdated contract events. Cached for five minutes and invalidated whenever a new ACLUpdated event is indexed. Admin only.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "contracts": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/AclEntry"
+                          }
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "cachedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Admin access required": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "Authentication required": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/acl/log": {
+      "get": {
+        "summary": "Get the ACL add/remove history",
+        "description": "Returns the append-only audit trail of ACL changes derived from ACLUpdated events, newest first. Admin only.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AclLogEntry"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Admin access required": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "Authentication required": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "Bad Request": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/swaps/history": {
+      "get": {
+        "summary": "List atomic swaps for the authenticated wallet",
+        "description": "Returns every atomic swap where the authenticated wallet is either the buyer or the seller, keyset-paginated on (executed_at, id).",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque cursor from the previous page's meta.nextCursor",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AtomicSwap"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "hasMore": {
+                          "type": "boolean"
+                        },
+                        "nextCursor": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Authentication required": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "Bad Request": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/swaps/{id}": {
+      "get": {
+        "summary": "Get a single atomic swap",
+        "description": "Public lookup of one atomic swap by its id or on-chain swap id.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Swap id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AtomicSwap"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Swap not found": {
+            "description": "Swap not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "Bad Request": {
+            "description": "Bad Request",
             "content": {
               "application/json": {
                 "schema": {

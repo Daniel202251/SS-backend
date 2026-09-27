@@ -344,7 +344,23 @@ export function createApp({
     app.use("/api/v1/dividends", createDividendsRouter({ dividendCycleService, authService }));
   }
 
-  if (config?.admin?.ipWhitelist?.length) {
+  if (creatorKeyService) {
+    const keysRouter = createKeysRouter({
+      creatorKeyService,
+      curveMigrationService,
+      authService,
+    });
+    app.use("/api/v1/keys", keysRouter);
+    app.use("/keys", keysRouter);
+  }
+
+  if (swapService) {
+    const swapRouter = createSwapRouter({ swapService, authService });
+    app.use("/api/v1/swaps", swapRouter);
+    app.use("/swaps", swapRouter);
+  }
+
+  if (config?.admin?.ipWhitelist?.length || aclService) {
     app.use(
       "/api/v1/admin",
       createAdminRouter({

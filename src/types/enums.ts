@@ -8,6 +8,11 @@ export enum UserType {
   BOTH = "both",
 }
 
+/** Roles accepted by the administrative endpoints. */
+export enum AdminRole {
+  ADMIN = "admin",
+}
+
 export enum KYCStatus {
   PENDING = "pending",
   IN_REVIEW = "in_review",

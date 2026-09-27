@@ -27,6 +27,7 @@ import { createInvoiceExtensionService } from "./services/invoice-extension.serv
 import { createAdminMetricsService } from "./services/admin-metrics.service";
 import { createPortfolioService } from "./services/portfolio.service";
 import { PaymentDistributorContractService } from "./services/stellar/payment-distributor-contract.service";
+import { createOnchainProjections } from "./services/onchain-projections.service";
 import { getSorobanConfig } from "./config/stellar";
 import { createRatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import { createDividendCycleService } from "./services/dividend-cycle.service";
@@ -101,6 +102,10 @@ export async function bootstrap(): Promise<{ server: Server }> {
 
   // ---- Feature: Dividend Cycle Config ----
   const dividendCycleService = createDividendCycleService(dataSource);
+
+  // Read models projected from Soroban contract events: creator key buy
+  // limits, the integration ACL, curve migrations and atomic swap history.
+  const projections = createOnchainProjections({ dataSource, logger });
 
   const app = createApp({
     authService,
