@@ -31,6 +31,9 @@ import { createOnchainProjections } from "./services/onchain-projections.service
 import { getSorobanConfig } from "./config/stellar";
 import { createRatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import { createDividendCycleService } from "./services/dividend-cycle.service";
+import { createOnboardingService } from "./services/onboarding.service";
+import { createSubscriptionStatusService } from "./services/subscription-status.service";
+import { createSorobanSubscriptionReader } from "./services/stellar/soroban-subscription-reader";
 import { scheduleAnalyticsSnapshotJob } from "./workers/analytics-snapshot.worker";
 
 export async function bootstrap(): Promise<{ server: Server }> {
@@ -103,9 +106,35 @@ export async function bootstrap(): Promise<{ server: Server }> {
   // ---- Feature: Dividend Cycle Config ----
   const dividendCycleService = createDividendCycleService(dataSource);
 
+  // ---- Feature: Onboarding Tour Completion ----
+  const onboardingService = createOnboardingService(dataSource);
+
   // Read models projected from Soroban contract events: creator key buy
-  // limits, the integration ACL, curve migrations and atomic swap history.
+  // limits, the integration ACL, curve migrations, atomic swap history, creator
+  // royalty earnings and holder dividend cycles.
   const projections = createOnchainProjections({ dataSource, logger });
+
+  // ---- Feature: Gated-content subscription status ----
+  // Only wired up when a gated-content contract and an RPC endpoint are both
+  // configured; otherwise the endpoint is not mounted rather than reporting a
+  // status nobody can verify.
+  const subscriptionStatusService =
+    config.sorobanEscrow.contractId && config.sorobanEscrow.rpcUrl
+      ? createSubscriptionStatusService({
+          holdingReader: createSorobanSubscriptionReader({
+            contractId: config.sorobanEscrow.contractId,
+            rpcUrl: config.sorobanEscrow.rpcUrl,
+            logger,
+          }),
+          logger,
+        })
+      : undefined;
+
+  // The subscription cache must not outlive a holding change, so the service
+  // joins the same event bus that projects the contract events.
+  if (subscriptionStatusService) {
+    projections.eventBus.register(subscriptionStatusService);
+  }
 
   const app = createApp({
     authService,
@@ -117,6 +146,17 @@ export async function bootstrap(): Promise<{ server: Server }> {
     kycService,
     ratingsLeaderboardService,
     dividendCycleService,
+    dividendDistributionService: projections.dividendDistributionService,
+    aclService: projections.aclService,
+    creatorKeyService: projections.creatorKeyService,
+    curveMigrationService: projections.curveMigrationService,
+    royaltyEarningsService: projections.royaltyEarningsService,
+    subscriptionStatusService,
+    onboardingService,
+    acknowledgementService,
+    extensionService,
+    adminMetricsService,
+    portfolioService,
     config,
     logger,
     metricsEnabled: config.observability.metricsEnabled,
