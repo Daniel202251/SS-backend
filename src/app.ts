@@ -19,10 +19,15 @@ import { createInvoiceRouter } from "./routes/invoice.routes";
 import { createInvestmentRouter } from "./routes/investment.routes";
 import { createSettlementRouter } from "./routes/settlement.routes";
 import { createMarketplaceRouter } from "./routes/marketplace.routes";
-import { createKeysRouter } from "./routes/keys.routes";
-import { createSwapRouter } from "./routes/swap.routes";
+import { createSellerRouter } from "./routes/seller.routes";
 import { createAdminRouter } from "./routes/admin/admin.routes";
+import { createInvestorRouter } from "./routes/investor.routes";
+import { createPortfolioRouter } from "./routes/portfolio.routes";
 import { createContractGuardService } from "./services/stellar/contract-guard.service";
+import { createKeysRouter } from "./routes/keys.routes";
+import { createDividendsRouter } from "./routes/dividends.routes";
+import type { RatingsLeaderboardService } from "./services/ratings-leaderboard.service";
+import type { DividendCycleService } from "./services/dividend-cycle.service";
 
 import type { AuthService } from "./services/auth.service";
 import type { NotificationService } from "./services/notification.service";
@@ -30,11 +35,12 @@ import type { InvoiceService } from "./services/invoice.service";
 import type { InvestmentService } from "./services/investment.service";
 import type { SettlementService } from "./services/settlement.service";
 import type { MarketplaceService } from "./services/marketplace.service";
+import type { SellerService } from "./services/seller.service";
 import type { KycService } from "./services/kyc.service";
-import type { CreatorKeyService } from "./services/creator-key.service";
-import type { CurveMigrationService } from "./services/curve-migration.service";
-import type { AclService } from "./services/acl.service";
-import type { AtomicSwapService } from "./services/atomic-swap.service";
+import type { InvestorAcknowledgementService } from "./services/investor-acknowledgement.service";
+import type { InvoiceExtensionService } from "./services/invoice-extension.service";
+import type { AdminMetricsService } from "./services/admin-metrics.service";
+import type { PortfolioService } from "./services/portfolio.service";
 
 import dataSource from "./config/database";
 
@@ -103,15 +109,14 @@ export interface AppDependencies {
   investmentService?: InvestmentService;
   settlementService?: SettlementService;
   marketplaceService?: MarketplaceService;
+  sellerService?: SellerService;
   kycService?: KycService;
-  /** Optional: mounts GET /api/v1/keys/:id and /:id/buy-limit. */
-  creatorKeyService?: CreatorKeyService;
-  /** Optional: mounts the creator-only curve migration listing. */
-  curveMigrationService?: CurveMigrationService;
-  /** Optional: mounts the admin-only ACL endpoints. */
-  aclService?: AclService;
-  /** Optional: mounts the atomic swap history/lookup endpoints. */
-  swapService?: AtomicSwapService;
+  ratingsLeaderboardService?: RatingsLeaderboardService;
+  dividendCycleService?: DividendCycleService;
+  acknowledgementService?: InvestorAcknowledgementService;
+  portfolioService?: PortfolioService;
+  extensionService?: InvoiceExtensionService;
+  adminMetricsService?: AdminMetricsService;
   logger?: AppLogger;
   metricsEnabled?: boolean;
   metricsRegistry?: MetricsRegistry;
@@ -137,11 +142,14 @@ export function createApp({
   investmentService,
   settlementService,
   marketplaceService,
+  sellerService,
   kycService,
-  creatorKeyService,
-  curveMigrationService,
-  aclService,
-  swapService,
+  ratingsLeaderboardService,
+  dividendCycleService,
+  acknowledgementService,
+  portfolioService,
+  extensionService,
+  adminMetricsService,
   logger: appLogger = logger,
   metricsEnabled = true,
   metricsRegistry = new MetricsRegistry(),
@@ -273,6 +281,7 @@ export function createApp({
       authService,
       contractGuardService,
       contractId: pauseGuardContractId,
+      extensionService,
     });
     app.use("/api/v1/invoices", invoiceRouter);
     app.use("/invoices", invoiceRouter);
@@ -290,6 +299,20 @@ export function createApp({
     );
   }
 
+  // Issue #473 — accreditation acknowledgement
+  if (acknowledgementService) {
+    const investorRouter = createInvestorRouter({ authService, acknowledgementService });
+    app.use("/api/v1/investors", investorRouter);
+    app.use("/investors", investorRouter);
+  }
+
+  // Issue #479 — portfolio summary with P&L
+  if (portfolioService) {
+    const portfolioRouter = createPortfolioRouter({ authService, portfolioService });
+    app.use("/api/v1/portfolio", portfolioRouter);
+    app.use("/portfolio", portfolioRouter);
+  }
+
   if (settlementService) {
     app.use(
       "/api/v1/settlements",
@@ -303,6 +326,22 @@ export function createApp({
 
   if (marketplaceService) {
     app.use("/api/v1/marketplace", createMarketplaceRouter({ marketplaceService }));
+    app.use("/marketplace", createMarketplaceRouter({ marketplaceService }));
+  }
+
+  if (sellerService) {
+    app.use("/api/v1/seller", createSellerRouter({ sellerService, authService }));
+    app.use("/seller", createSellerRouter({ sellerService, authService }));
+  }
+
+  // ---- Keys: Ratings Leaderboard ----
+  if (ratingsLeaderboardService) {
+    app.use("/api/v1/keys", createKeysRouter({ ratingsLeaderboardService }));
+  }
+
+  // ---- Dividends: Cycle Config & Distribution ----
+  if (dividendCycleService) {
+    app.use("/api/v1/dividends", createDividendsRouter({ dividendCycleService, authService }));
   }
 
   if (creatorKeyService) {
@@ -326,10 +365,10 @@ export function createApp({
       "/api/v1/admin",
       createAdminRouter({
         dataSource,
-        allowedCidrs: config?.admin?.ipWhitelist ?? [],
+        allowedCidrs: config.admin.ipWhitelist,
         invoiceService,
-        aclService,
-        authService,
+        extensionService,
+        metricsService: adminMetricsService,
       })
     );
   }

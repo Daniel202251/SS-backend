@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { DataSource } from "typeorm";
 
 import { ipWhitelistMiddleware } from "@/middleware/ip-whitelist.middleware";
@@ -7,12 +7,17 @@ import { requireAdminRole } from "@/middleware/require-admin-role.middleware";
 import type { AuthService } from "@/services/auth.service";
 import type { AclService } from "@/services/acl.service";
 import type { InvoiceService } from "@/services/invoice.service";
+import type { InvoiceExtensionService } from "@/services/invoice-extension.service";
+import type { AdminMetricsService } from "@/services/admin-metrics.service";
 import { approveKYC } from "./approve-kyc";
 import { rejectKYC } from "./reject-kyc";
 import { revokeKYC } from "./revoke-kyc";
 import { approveInvoice } from "./approve-invoice";
 import { rejectInvoice } from "./reject-invoice";
-import { createAclController } from "./acl";
+import { createRoyaltyAnalyticsService } from "@/services/royalty-analytics.service";
+import { createAdminRoyaltiesRouter } from "./royalties.routes";
+import { createAnalyticsSnapshotService } from "@/services/analytics-snapshot.service";
+import { createAdminAnalyticsTrendsRouter } from "./analytics-trends.routes";
 
 export interface AdminRouterDependencies {
   dataSource: DataSource;
@@ -20,27 +25,23 @@ export interface AdminRouterDependencies {
   /** Optional: enables POST /invoices/:id/approve and /invoices/:id/reject.
    *  Omitted deployments (e.g. minimal test apps) simply won't mount them. */
   invoiceService?: InvoiceService;
-  /** Optional: enables GET /acl and GET /acl/log. */
-  aclService?: AclService;
-  /** Required for the role-gated ACL endpoints. */
-  authService?: AuthService;
+  /** Issue #477 — admin approval gate for funding deadline extensions. */
+  extensionService?: InvoiceExtensionService;
+  /** Issue #478 — platform metrics aggregation for the admin dashboard. */
+  metricsService?: AdminMetricsService;
 }
 
 export function createAdminRouter({
   dataSource,
   allowedCidrs,
   invoiceService,
-  aclService,
-  authService,
+  extensionService,
+  metricsService,
 }: AdminRouterDependencies): Router {
   const router = Router();
 
-  // An empty allow-list means "no IP restriction configured"; gating on it
-  // would reject every caller, so the middleware is only mounted when the
-  // operator actually configured CIDRs.
-  if (allowedCidrs.length > 0) {
-    router.use(ipWhitelistMiddleware(allowedCidrs));
-  }
+  // Admin-only: IP whitelist is the role gate for this router (issue #478).
+  router.use(ipWhitelist);
 
   router.post("/approve-kyc", (req, res) => {
     approveKYC(req, res, dataSource);
@@ -64,16 +65,13 @@ export function createAdminRouter({
     });
   }
 
-  if (aclService) {
-    const aclController = createAclController(aclService);
-    // Admin-only: role middleware only applies when the app can authenticate
-    // requests at all; without an authService the router is already protected
-    // by the IP allow-list above.
-    const adminOnly = authService ? [createAuthMiddleware(authService), requireAdminRole()] : [];
+  // ---- Royalty analytics (GET /admin/royalties/analytics) ----
+  const royaltyAnalyticsService = createRoyaltyAnalyticsService(dataSource);
+  router.use("/royalties", createAdminRoyaltiesRouter({ royaltyAnalyticsService }));
 
-    router.get("/acl", ...adminOnly, aclController.getAcl);
-    router.get("/acl/log", ...adminOnly, aclController.getAclLog);
-  }
+  // ---- Analytics trends / daily snapshots (GET /admin/analytics/trends) ----
+  const analyticsSnapshotService = createAnalyticsSnapshotService(dataSource);
+  router.use("/analytics", createAdminAnalyticsTrendsRouter({ analyticsSnapshotService }));
 
   return router;
 }

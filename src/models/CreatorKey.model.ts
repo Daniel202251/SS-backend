@@ -1,58 +1,60 @@
 import {
+  Entity,
+  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  Entity,
-  Index,
-  PrimaryGeneratedColumn,
   UpdateDateColumn,
+  Index,
 } from "typeorm";
 
 /**
- * A creator key registered on the token contract. Mirrors the on-chain
- * per-key configuration (buy caps, curve parameters) so the frontend can
- * enforce limits before a transaction is ever submitted.
+ * Represents a creator's key that can be rated by holders.
+ * Each creator key tracks aggregate ratings metadata for leaderboard ranking.
  */
 @Entity("creator_keys")
-@Index("idx_creator_keys_creator_id", ["creatorId"])
-@Index("idx_creator_keys_contract_address", ["contractAddress"], { unique: true })
 export class CreatorKey {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
-  /** Owner of the key (creator wallet / user id). */
-  @Column({ name: "creator_id", type: "varchar", length: 128 })
-  creatorId!: string;
+  /** On-chain key address / identifier */
+  @Column({ name: "key_address", type: "varchar", length: 128, unique: true })
+  @Index("idx_creator_keys_key_address", { unique: true })
+  keyAddress!: string;
 
+  /** Stellar address of the key creator */
   @Column({ name: "creator_wallet", type: "varchar", length: 56 })
+  @Index("idx_creator_keys_creator_wallet")
   creatorWallet!: string;
 
-  @Column({ name: "contract_address", type: "varchar", length: 56 })
-  contractAddress!: string;
+  /** Human-readable name for the key */
+  @Column({ name: "name", type: "varchar", length: 255, nullable: true })
+  name!: string | null;
 
-  /** Maximum amount purchasable in a single buy transaction, in base units. */
-  @Column({ name: "max_buy_per_tx", type: "decimal", precision: 30, scale: 7, default: "0" })
-  maxBuyPerTx!: string;
+  /** Optional description of the key */
+  @Column({ name: "description", type: "text", nullable: true })
+  description!: string | null;
 
-  /** Maximum amount purchasable per wallet per day, in base units. */
-  @Column({ name: "max_buy_per_day", type: "decimal", precision: 30, scale: 7, default: "0" })
-  maxBuyPerDay!: string;
+  /** Image / avatar URL for the key */
+  @Column({ name: "image_url", type: "varchar", length: 512, nullable: true })
+  imageUrl!: string | null;
 
-  /** Current circulating supply of the key's token, in base units. */
-  @Column({ name: "current_supply", type: "decimal", precision: 30, scale: 7, default: "0" })
-  currentSupply!: string;
+  /** Total number of ratings received */
+  @Column({ name: "rating_count", type: "integer", default: 0 })
+  @Index("idx_creator_keys_rating_count")
+  ratingCount!: number;
 
-  @Column({ name: "curve_type", type: "varchar", length: 32, default: "constant_product" })
-  curveType!: string;
+  /** Sum of all ratings (used to compute average without a full scan) */
+  @Column({ name: "rating_sum", type: "decimal", precision: 18, scale: 4, default: 0 })
+  ratingSum!: string;
 
-  @Column({ name: "config_version", type: "integer", default: 0 })
-  configVersion!: number;
+  /** Cached average rating, updated on each new rating */
+  @Column({ name: "average_rating", type: "decimal", precision: 5, scale: 4, default: 0 })
+  @Index("idx_creator_keys_average_rating")
+  averageRating!: string;
 
-  @Column({ name: "is_active", type: "boolean", default: true })
-  isActive!: boolean;
-
-  @CreateDateColumn({ name: "created_at", type: "timestamptz" })
+  @CreateDateColumn({ name: "created_at" })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: "updated_at", type: "timestamptz" })
+  @UpdateDateColumn({ name: "updated_at" })
   updatedAt!: Date;
 }

@@ -1,45 +1,58 @@
-import { Router } from "express";
-
-import { createCreatorKeyController } from "../controllers/creator-key.controller";
-import { createCurveMigrationController } from "../controllers/curve-migration.controller";
-import { createAuthMiddleware } from "../middleware/auth.middleware";
-import type { AuthService } from "../services/auth.service";
-import type { CreatorKeyService } from "../services/creator-key.service";
-import type { CurveMigrationService } from "../services/curve-migration.service";
+import { Router, Request, Response, NextFunction } from "express";
+import { RatingsLeaderboardService } from "../services/ratings-leaderboard.service";
+import { AppError } from "../utils/http-error";
+import { logger } from "../observability/logger";
 
 export interface KeysRouterDependencies {
-  creatorKeyService: CreatorKeyService;
-  curveMigrationService?: CurveMigrationService;
-  authService?: AuthService;
+  ratingsLeaderboardService: RatingsLeaderboardService;
 }
 
-export function createKeysRouter({
-  creatorKeyService,
-  curveMigrationService,
-  authService,
-}: KeysRouterDependencies): Router {
+/**
+ * GET /keys/ratings-leaderboard
+ *
+ * Returns top N creator keys ranked by average holder rating.
+ * Keys below the minimum rating count threshold are excluded.
+ * Results are cached with a 5-minute TTL.
+ *
+ * Query params:
+ *   - limit   (optional, default 50, max 100)
+ *   - minCount (optional, overrides LEADERBOARD_MIN_RATING_COUNT env var)
+ */
+export function createKeysRouter({ ratingsLeaderboardService }: KeysRouterDependencies): Router {
   const router = Router();
-  const controller = createCreatorKeyController(creatorKeyService);
 
-  // Public pre-trade checks: the returned caps are already enforced on-chain,
-  // so no bearer token is required to read them.
-  router.get("/:id/buy-limit", controller.getBuyLimit);
-  router.get("/:id", controller.getKeyDetail);
+  router.get(
+    "/ratings-leaderboard",
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const rawLimit = parseInt(String(req.query.limit ?? "50"), 10);
+        const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 50;
 
-  if (curveMigrationService) {
-    const migrationController = createCurveMigrationController(
-      creatorKeyService,
-      curveMigrationService
-    );
-    // Pending migrations are only visible to the key's creator.
-    const authMiddleware = authService ? createAuthMiddleware(authService) : undefined;
+        const rawMin = req.query.minCount !== undefined
+          ? parseInt(String(req.query.minCount), 10)
+          : undefined;
+        const minRatingCountOverride =
+          rawMin !== undefined && Number.isFinite(rawMin) && rawMin >= 0 ? rawMin : undefined;
 
-    router.get(
-      "/:id/curve-migrations",
-      ...(authMiddleware ? [authMiddleware] : []),
-      migrationController.getCurveMigrations
-    );
-  }
+        const result = await ratingsLeaderboardService.getLeaderboard(limit, minRatingCountOverride);
+
+        res.status(200).json({
+          success: true,
+          data: result.data,
+          meta: result.meta,
+        });
+      } catch (error) {
+        logger.error("GET /keys/ratings-leaderboard failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        next(
+          error instanceof AppError
+            ? error
+            : new AppError(500, "Failed to retrieve ratings leaderboard", "LEADERBOARD_ERROR")
+        );
+      }
+    }
+  );
 
   return router;
 }

@@ -12,7 +12,8 @@ export function createMarketplaceRouter({
   const router = Router();
   const controller = createMarketplaceController(marketplaceService);
 
-  // GET /api/v1/marketplace/invoices - List published invoices for investment
+  // GET /api/v1/marketplace & /api/v1/marketplace/invoices - List published invoices
+  router.get("/", controller.getInvoices);
   router.get("/invoices", controller.getInvoices);
 
   return router;

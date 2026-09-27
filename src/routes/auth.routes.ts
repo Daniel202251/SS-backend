@@ -13,7 +13,7 @@ import { createAuthRateLimiter } from "../middleware/redis-rate-limit.middleware
 import { createCircuitBreaker } from "../lib/circuit-breaker";
 import type { AuthService } from "../services/auth.service";
 import type { AppLogger } from "../observability/logger";
-import { HttpError } from "../utils/http-error";
+import { AppError, HttpError } from "../utils/http-error";
 
 // Strict schemas: enforce Stellar G... format hint, length bounds, and sanitized inputs.
 const _STELLAR_PUBLIC_KEY_PATTERN = /^G[A-Z2-7]{55}$/;
@@ -22,17 +22,20 @@ const _SIGNATURE_PATTERN = /^[A-Za-z0-9+/=:_\-.]+$/;
 
 type AsyncRouteHandler = (req: Request, res: Response, next: NextFunction) => Promise<void> | void;
 
-const publicKeySchema = Joi.string().trim().required();
+const publicKeySchema = Joi.string().trim();
 
 const challengeSchema = Joi.object({
   publicKey: publicKeySchema,
-}).unknown(true);
+  wallet: publicKeySchema,
+}).or("publicKey", "wallet").unknown(true);
 
 const verifySchema = Joi.object({
   publicKey: publicKeySchema,
-  nonce: Joi.string().trim().required(),
+  wallet: publicKeySchema,
+  nonce: Joi.string().trim(),
+  challenge: Joi.string().trim(),
   signature: Joi.string().trim().required(),
-}).unknown(true);
+}).or("publicKey", "wallet").or("nonce", "challenge").unknown(true);
 
 function wrapAuthHandler(
   routeName: string,
@@ -121,8 +124,6 @@ function createIdempotencyMiddleware() {
     next();
   };
 }
-
-
 
 function validateQuery(schema: Joi.Schema): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction) => {
