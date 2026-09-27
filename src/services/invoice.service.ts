@@ -959,7 +959,7 @@ export class InvoiceService {
     }
 
     if (invoice.sellerId !== sellerId) {
-      throw new ServiceError("unauthorized_invoice_access", "You can only view investors for your own invoices", 403);
+      throw new ServiceError("forbidden", "You can only view investors for your own invoices", 403);
     }
 
     if (invoice.status === InvoiceStatus.DRAFT) {
