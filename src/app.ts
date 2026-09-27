@@ -26,9 +26,8 @@ import { createPortfolioRouter } from "./routes/portfolio.routes";
 import { createContractGuardService } from "./services/stellar/contract-guard.service";
 import { createKeysRouter } from "./routes/keys.routes";
 import { createDividendsRouter } from "./routes/dividends.routes";
-import { createRoyaltiesRouter } from "./routes/royalties.routes";
-import { createSubscriptionsRouter } from "./routes/subscriptions.routes";
-import { createOnboardingRouter } from "./routes/onboarding.routes";
+import { createSecondaryMarketRouter } from "./routes/secondary-market.routes";
+import { createWatchlistRouter } from "./routes/watchlist.routes";
 import type { RatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import type { DividendCycleService } from "./services/dividend-cycle.service";
 import type { DividendDistributionService } from "./services/dividend-distribution.service";
@@ -53,6 +52,9 @@ import type { InvestorAcknowledgementService } from "./services/investor-acknowl
 import type { InvoiceExtensionService } from "./services/invoice-extension.service";
 import type { AdminMetricsService } from "./services/admin-metrics.service";
 import type { PortfolioService } from "./services/portfolio.service";
+import type { SecondaryMarketService } from "./services/secondary-market.service";
+import type { WatchlistService } from "./services/watchlist.service";
+import type { SettlementWorker } from "./workers/settlement.worker";
 
 import dataSource from "./config/database";
 
@@ -125,25 +127,12 @@ export interface AppDependencies {
   kycService?: KycService;
   ratingsLeaderboardService?: RatingsLeaderboardService;
   dividendCycleService?: DividendCycleService;
-  /** Issue #538 — holder claimable balances, claim history and summary. */
-  dividendDistributionService?: DividendDistributionService;
-  /** Issue #537 — creator royalty earnings and claim history. */
-  royaltyEarningsService?: RoyaltyEarningsService;
-  /** Issue #539 — gated-content subscription status. */
-  subscriptionStatusService?: SubscriptionStatusService;
-  /** Issue #540 — onboarding tour completion. */
-  onboardingService?: OnboardingService;
-  /** On-chain swap history projected from Soroban events. */
-  swapService?: AtomicSwapService;
-  /** Issue #542 — creator key buy limit and detail projections. */
-  creatorKeyService?: CreatorKeyService;
-  /** Issue #544 — curve migration projections for a key. */
-  curveMigrationService?: CurveMigrationService;
-  /** Integration ACL projected from ACLUpdated events, exposed under /admin/acl. */
-  aclService?: AclService;
+  secondaryMarketService?: SecondaryMarketService;
+  watchlistService?: WatchlistService;
+  settlementWorker?: SettlementWorker;
   acknowledgementService?: InvestorAcknowledgementService;
-  portfolioService?: PortfolioService;
   extensionService?: InvoiceExtensionService;
+  portfolioService?: PortfolioService;
   adminMetricsService?: AdminMetricsService;
   logger?: AppLogger;
   metricsEnabled?: boolean;
@@ -174,11 +163,9 @@ export function createApp({
   kycService,
   ratingsLeaderboardService,
   dividendCycleService,
-  dividendDistributionService,
-  royaltyEarningsService,
-  subscriptionStatusService,
-  onboardingService,
-  swapService,
+  secondaryMarketService,
+  watchlistService,
+  settlementWorker,
   acknowledgementService,
   portfolioService,
   extensionService,
@@ -354,6 +341,7 @@ export function createApp({
       "/api/v1/settlements",
       createSettlementRouter({
         settlementService,
+        settlementWorker,
         contractGuardService,
         contractId: pauseGuardContractId,
       })
@@ -368,6 +356,17 @@ export function createApp({
   if (sellerService) {
     app.use("/api/v1/seller", createSellerRouter({ sellerService, authService }));
     app.use("/seller", createSellerRouter({ sellerService, authService }));
+  }
+
+  if (secondaryMarketService && authService) {
+    app.use(
+      "/api/v1/secondary",
+      createSecondaryMarketRouter({ secondaryMarketService, authService })
+    );
+  }
+
+  if (watchlistService && authService) {
+    app.use("/api/v1/watchlist", createWatchlistRouter({ watchlistService, authService }));
   }
 
   // ---- Keys: Ratings Leaderboard ----

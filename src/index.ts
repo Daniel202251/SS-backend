@@ -22,18 +22,14 @@ import { createInvestmentService } from "./services/investment.service";
 import { createSettlementService } from "./services/settlement.service";
 import { createMarketplaceService } from "./services/marketplace.service";
 import { KycService } from "./services/kyc.service";
-import { createInvestorAcknowledgementService } from "./services/investor-acknowledgement.service";
-import { createInvoiceExtensionService } from "./services/invoice-extension.service";
-import { createAdminMetricsService } from "./services/admin-metrics.service";
-import { createPortfolioService } from "./services/portfolio.service";
 import { PaymentDistributorContractService } from "./services/stellar/payment-distributor-contract.service";
 import { createOnchainProjections } from "./services/onchain-projections.service";
 import { getSorobanConfig } from "./config/stellar";
 import { createRatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import { createDividendCycleService } from "./services/dividend-cycle.service";
-import { createOnboardingService } from "./services/onboarding.service";
-import { createSubscriptionStatusService } from "./services/subscription-status.service";
-import { createSorobanSubscriptionReader } from "./services/stellar/soroban-subscription-reader";
+import { createSecondaryMarketService } from "./services/secondary-market.service";
+import { createWatchlistService } from "./services/watchlist.service";
+import { createSettlementWorker } from "./workers/settlement.worker";
 import { scheduleAnalyticsSnapshotJob } from "./workers/analytics-snapshot.worker";
 
 export async function bootstrap(): Promise<{ server: Server }> {
@@ -83,14 +79,12 @@ export async function bootstrap(): Promise<{ server: Server }> {
     dataSource,
     distributor,
     distributorConfig,
-    invoiceStateMachine
+    invoiceStateMachine,
+    undefined,
+    notificationService
   );
   const marketplaceService = createMarketplaceService(dataSource);
   const kycService = new KycService(dataSource, config.kyc.webhookSecret ?? "", logger);
-  const acknowledgementService = createInvestorAcknowledgementService(dataSource);
-  const extensionService = createInvoiceExtensionService(dataSource, notificationService);
-  const adminMetricsService = createAdminMetricsService(dataSource);
-  const portfolioService = createPortfolioService(dataSource);
 
   // Keep process.env.TERMS_VERSION aligned with resolved config for services
   // that read the env directly (acknowledgement gate in InvestmentService).
@@ -114,27 +108,14 @@ export async function bootstrap(): Promise<{ server: Server }> {
   // royalty earnings and holder dividend cycles.
   const projections = createOnchainProjections({ dataSource, logger });
 
-  // ---- Feature: Gated-content subscription status ----
-  // Only wired up when a gated-content contract and an RPC endpoint are both
-  // configured; otherwise the endpoint is not mounted rather than reporting a
-  // status nobody can verify.
-  const subscriptionStatusService =
-    config.sorobanEscrow.contractId && config.sorobanEscrow.rpcUrl
-      ? createSubscriptionStatusService({
-          holdingReader: createSorobanSubscriptionReader({
-            contractId: config.sorobanEscrow.contractId,
-            rpcUrl: config.sorobanEscrow.rpcUrl,
-            logger,
-          }),
-          logger,
-        })
-      : undefined;
+  // ---- Feature: Secondary Market ----
+  const secondaryMarketService = createSecondaryMarketService(dataSource);
 
-  // The subscription cache must not outlive a holding change, so the service
-  // joins the same event bus that projects the contract events.
-  if (subscriptionStatusService) {
-    projections.eventBus.register(subscriptionStatusService);
-  }
+  // ---- Feature: Watchlist ----
+  const watchlistService = createWatchlistService(dataSource);
+
+  // ---- Feature: Settlement Worker ----
+  const settlementWorker = createSettlementWorker(dataSource, settlementService);
 
   const app = createApp({
     authService,
@@ -146,17 +127,9 @@ export async function bootstrap(): Promise<{ server: Server }> {
     kycService,
     ratingsLeaderboardService,
     dividendCycleService,
-    dividendDistributionService: projections.dividendDistributionService,
-    aclService: projections.aclService,
-    creatorKeyService: projections.creatorKeyService,
-    curveMigrationService: projections.curveMigrationService,
-    royaltyEarningsService: projections.royaltyEarningsService,
-    subscriptionStatusService,
-    onboardingService,
-    acknowledgementService,
-    extensionService,
-    adminMetricsService,
-    portfolioService,
+    secondaryMarketService,
+    watchlistService,
+    settlementWorker,
     config,
     logger,
     metricsEnabled: config.observability.metricsEnabled,
@@ -169,9 +142,13 @@ export async function bootstrap(): Promise<{ server: Server }> {
   // ---- Start daily analytics snapshot cron (midnight UTC) ----
   const snapshotScheduler = scheduleAnalyticsSnapshotJob(dataSource);
 
-  // Stop scheduler on server close
+  // ---- Start settlement worker cron (hourly) ----
+  settlementWorker.start("0 * * * *");
+
+  // Stop schedulers on server close
   server.on("close", () => {
     snapshotScheduler.stop();
+    settlementWorker.stop();
   });
 
   return { server };
