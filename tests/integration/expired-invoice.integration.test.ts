@@ -37,7 +37,7 @@ function createFakeDataSource(invoice: Invoice) {
   const dataSource = {
     transaction: (callback: (em: typeof manager) => Promise<unknown>) => callback(manager),
     getRepository: () => ({
-      findOne: jest.fn().mockResolvedValue(null),
+      findOne: jest.fn().mockResolvedValue({ walletAddress: "test", termsVersion: "1", acknowledgedAt: new Date() }),
       find: jest.fn().mockResolvedValue([]),
     }),
   } as unknown as DataSource;
