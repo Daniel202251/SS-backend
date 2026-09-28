@@ -39,6 +39,9 @@ import type { AclService } from "./services/acl.service";
 import type { CreatorKeyService } from "./services/creator-key.service";
 import type { CurveMigrationService } from "./services/curve-migration.service";
 import { createSwapRouter } from "./routes/swap.routes";
+import { createRoyaltiesRouter } from "./routes/royalties.routes";
+import { createSubscriptionsRouter } from "./routes/subscriptions.routes";
+import { createOnboardingRouter } from "./routes/onboarding.routes";
 
 import type { AuthService } from "./services/auth.service";
 import type { NotificationService } from "./services/notification.service";
@@ -129,6 +132,14 @@ export interface AppDependencies {
   kycService?: KycService;
   ratingsLeaderboardService?: RatingsLeaderboardService;
   dividendCycleService?: DividendCycleService;
+  dividendDistributionService?: DividendDistributionService;
+  royaltyEarningsService?: RoyaltyEarningsService;
+  subscriptionStatusService?: SubscriptionStatusService;
+  onboardingService?: OnboardingService;
+  swapService?: AtomicSwapService;
+  aclService?: AclService;
+  creatorKeyService?: CreatorKeyService;
+  curveMigrationService?: CurveMigrationService;
   secondaryMarketService?: SecondaryMarketService;
   watchlistService?: WatchlistService;
   settlementWorker?: SettlementWorker;
@@ -166,6 +177,14 @@ export function createApp({
   kycService,
   ratingsLeaderboardService,
   dividendCycleService,
+  dividendDistributionService,
+  royaltyEarningsService,
+  subscriptionStatusService,
+  onboardingService,
+  swapService,
+  aclService,
+  creatorKeyService,
+  curveMigrationService,
   secondaryMarketService,
   watchlistService,
   settlementWorker,
@@ -173,9 +192,6 @@ export function createApp({
   portfolioService,
   extensionService,
   adminMetricsService,
-  aclService,
-  creatorKeyService,
-  curveMigrationService,
   logger: appLogger = logger,
   metricsEnabled = true,
   metricsRegistry = new MetricsRegistry(),

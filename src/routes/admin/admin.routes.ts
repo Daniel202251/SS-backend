@@ -82,24 +82,9 @@ export function createAdminRouter({
   authService,
   aclService,
   invoiceService,
-  extensionService: _extensionService,
+extensionService: _extensionService,
   metricsService: _metricsService,
   adminSettlementService,
-}: AdminRouterDependencies): Router {
-}
-
-export function createAdminRouter({
-  dataSource,
-  allowedCidrs,
-  authService,
-  aclService,
-  invoiceService,
-<<<<<<< HEAD
-  extensionService: _extensionService,
-  metricsService: _metricsService,
-=======
-  adminSettlementService,
->>>>>>> ffe907b (feat(admin): add settlement endpoint for invoice repayment and investor payouts)
 }: AdminRouterDependencies): Router {
   const router = Router();
 
@@ -156,7 +141,6 @@ export function createAdminRouter({
     });
   }
 
-<<<<<<< HEAD
   // ---- Integration ACL projected from ACLUpdated events ----
   if (aclService) {
     const acl = createAclController(aclService);
@@ -165,14 +149,14 @@ export function createAdminRouter({
   }
 
   // ---- Platform metrics (issue #478) ----
-  if (metricsService) {
+  if (_metricsService) {
     router.get("/metrics", async (req: Request, res: Response, next: NextFunction) => {
       try {
         const query: AdminMetricsQuery = {
           from: parseDateBoundary(req.query.from, "from"),
           to: parseDateBoundary(req.query.to, "to"),
         };
-        const metrics = await metricsService.getMetrics(query);
+        const metrics = await _metricsService.getMetrics(query);
         res.status(200).json({ success: true, data: metrics });
       } catch (error) {
         next(error);
@@ -181,7 +165,7 @@ export function createAdminRouter({
   }
 
   // ---- Invoice deadline extension review ----
-  if (extensionService) {
+  if (_extensionService) {
     router.post(
       "/invoices/:invoiceId/extensions/:requestId/review",
       async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -200,7 +184,7 @@ export function createAdminRouter({
           }
 
           const reviewedBy = req.user?.stellarAddress ?? "admin";
-          const result = await extensionService.reviewExtension({
+          const result = await _extensionService.reviewExtension({
             invoiceId: String(req.params.invoiceId),
             requestId: String(req.params.requestId),
             decision,

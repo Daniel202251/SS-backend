@@ -126,9 +126,6 @@ export async function bootstrap(): Promise<{ server: Server }> {
   // ---- Feature: Dividend Cycle Config ----
   const dividendCycleService = createDividendCycleService(dataSource);
 
-  // ---- Feature: Onboarding Tour Completion ----
-  const onboardingService = createOnboardingService(dataSource);
-
   // Read models projected from Soroban contract events: creator key buy
   // limits, the integration ACL, curve migrations, atomic swap history, creator
   // royalty earnings and holder dividend cycles.
@@ -160,6 +157,12 @@ export async function bootstrap(): Promise<{ server: Server }> {
     config,
     logger,
     metricsEnabled: config.observability.metricsEnabled,
+    creatorKeyService: projections.creatorKeyService,
+    aclService: projections.aclService,
+    curveMigrationService: projections.curveMigrationService,
+    swapService: projections.swapService,
+    royaltyEarningsService: projections.royaltyEarningsService,
+    dividendDistributionService: projections.dividendDistributionService,
   });
 
   const server = app.listen(config.port, () => {
