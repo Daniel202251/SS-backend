@@ -21,14 +21,30 @@ import {
   createAclRepository,
   createCreatorKeyRepository,
   createCurveMigrationRepository,
+  createDividendRepository,
+  createRoyaltyEarningsRepository,
   createSwapRepository,
 } from "./onchain-projection-repositories";
+import {
+  DIVIDEND_CACHE_TTL_SECONDS,
+  createDividendDistributionService,
+  type DividendDistributionService,
+} from "./dividend-distribution.service";
+import {
+  ROYALTY_EARNINGS_CACHE_TTL_SECONDS,
+  createRoyaltyEarningsService,
+  type RoyaltyEarningsService,
+} from "./royalty-earnings.service";
 
 export interface OnchainProjections {
   creatorKeyService: CreatorKeyService;
   aclService: AclService;
   curveMigrationService: CurveMigrationService;
   swapService: AtomicSwapService;
+  /** Issue #537 — creator royalty earnings and claim history. */
+  royaltyEarningsService: RoyaltyEarningsService;
+  /** Issue #538 — holder dividend cycles, claimable balances and claim history. */
+  dividendDistributionService: DividendDistributionService;
   /** Handed to `EventIndexerService` so polled events feed the projections. */
   eventBus: ContractEventBus;
   /** Direct entry point for replaying already-decoded events. */
@@ -40,6 +56,8 @@ export interface OnchainProjectionsDependencies {
   logger?: AppLogger;
   buyLimitCache?: TtlCache;
   aclCache?: TtlCache;
+  royaltyCache?: TtlCache;
+  dividendCache?: TtlCache;
   adminNotifier?: AdminNotifier;
 }
 
@@ -53,6 +71,8 @@ export function createOnchainProjections({
   logger = globalLogger,
   buyLimitCache,
   aclCache,
+  royaltyCache,
+  dividendCache,
   adminNotifier,
 }: OnchainProjectionsDependencies): OnchainProjections {
   const creatorKeyService = createCreatorKeyService({
@@ -80,11 +100,37 @@ export function createOnchainProjections({
 
   const swapService = createAtomicSwapService({ swapRepository: createSwapRepository(dataSource) });
 
+  const royaltyEarningsService = createRoyaltyEarningsService({
+    royaltyRepository: createRoyaltyEarningsRepository(dataSource),
+    logger,
+    cache:
+      royaltyCache ??
+      new TtlCache({
+        ttlSeconds: ROYALTY_EARNINGS_CACHE_TTL_SECONDS,
+        namespace: "royalties",
+        enabled: true,
+      }),
+  });
+
+  const dividendDistributionService = createDividendDistributionService({
+    dividendRepository: createDividendRepository(dataSource),
+    logger,
+    cache:
+      dividendCache ??
+      new TtlCache({
+        ttlSeconds: DIVIDEND_CACHE_TTL_SECONDS,
+        namespace: "dividends",
+        enabled: true,
+      }),
+  });
+
   const handlers: ContractEventHandler[] = [
     creatorKeyService,
     aclService,
     curveMigrationService,
     swapService,
+    royaltyEarningsService,
+    dividendDistributionService,
   ];
   const eventBus = new ContractEventBus({ handlers, logger });
 
@@ -93,6 +139,8 @@ export function createOnchainProjections({
     aclService,
     curveMigrationService,
     swapService,
+    royaltyEarningsService,
+    dividendDistributionService,
     eventBus,
     async syncEvents(events) {
       let handled = 0;

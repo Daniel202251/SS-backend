@@ -422,6 +422,384 @@
             "format": "date-time"
           }
         }
+      },
+      "RoyaltyTransfer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "keyAddress": {
+            "type": "string",
+            "description": "Creator key contract that split the royalty."
+          },
+          "buyerWallet": {
+            "type": "string",
+            "nullable": true,
+            "description": "Buyer that paid the transfer, when the event carried it."
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Royalty amount credited in token units."
+          },
+          "txHash": {
+            "type": "string",
+            "nullable": true,
+            "description": "Transaction that paid the royalty."
+          },
+          "ledgerSequence": {
+            "type": "string",
+            "nullable": true,
+            "description": "Ledger the royalty was paid in."
+          },
+          "paidAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "RFC 3339 payment time."
+          }
+        },
+        "required": [
+          "id",
+          "keyAddress",
+          "amount"
+        ]
+      },
+      "RoyaltyClaim": {
+        "type": "object",
+        "properties": {
+          "claimId": {
+            "type": "string",
+            "description": "On-chain claim identifier."
+          },
+          "keyAddress": {
+            "type": "string",
+            "nullable": true,
+            "description": "Creator key the royalty was accrued under."
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Royalty amount claimed."
+          },
+          "txHash": {
+            "type": "string",
+            "nullable": true,
+            "description": "Transaction that claimed the royalty."
+          },
+          "ledgerSequence": {
+            "type": "string",
+            "nullable": true,
+            "description": "Ledger the claim settled in."
+          },
+          "claimedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "RFC 3339 claim time."
+          }
+        },
+        "required": [
+          "claimId",
+          "amount"
+        ]
+      },
+      "RoyaltyEarnings": {
+        "type": "object",
+        "properties": {
+          "creatorWallet": {
+            "type": "string"
+          },
+          "totalEarned": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Lifetime royalty accruals."
+          },
+          "totalClaimed": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Lifetime royalties claimed."
+          },
+          "pending": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "totalEarned - totalClaimed, floored at zero."
+          },
+          "transferCount": {
+            "type": "integer"
+          },
+          "claimCount": {
+            "type": "integer"
+          },
+          "transfers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoyaltyTransfer"
+            }
+          },
+          "computedAt": {
+            "type": "string",
+            "description": "RFC 3339 computation time."
+          }
+        },
+        "required": [
+          "creatorWallet",
+          "totalEarned",
+          "totalClaimed",
+          "pending",
+          "transfers",
+          "computedAt"
+        ]
+      },
+      "DividendCycleClaimable": {
+        "type": "object",
+        "properties": {
+          "cycleId": {
+            "type": "string"
+          },
+          "cycleFrequency": {
+            "type": "string",
+            "nullable": true,
+            "description": "Configured distribution frequency for the cycle."
+          },
+          "distributedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "RFC 3339 distribution time."
+          },
+          "txHash": {
+            "type": "string",
+            "nullable": true,
+            "description": "Transaction that distributed the cycle."
+          },
+          "earned": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Amount allocated to the wallet for the cycle."
+          },
+          "claimed": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Amount of the allocation already claimed."
+          },
+          "claimable": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "earned - claimed, floored at zero."
+          }
+        },
+        "required": [
+          "cycleId",
+          "earned",
+          "claimed",
+          "claimable"
+        ]
+      },
+      "DividendClaimable": {
+        "type": "object",
+        "properties": {
+          "wallet": {
+            "type": "string"
+          },
+          "cycles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DividendCycleClaimable"
+            }
+          },
+          "totalEarned": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Sum of every cycle's allocation."
+          },
+          "totalClaimed": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Sum of every claim by the wallet."
+          },
+          "totalClaimable": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "totalEarned - totalClaimed, floored at zero."
+          },
+          "computedAt": {
+            "type": "string",
+            "description": "RFC 3339 computation time."
+          }
+        },
+        "required": [
+          "wallet",
+          "cycles",
+          "totalEarned",
+          "totalClaimed",
+          "totalClaimable",
+          "computedAt"
+        ]
+      },
+      "DividendClaim": {
+        "type": "object",
+        "properties": {
+          "claimId": {
+            "type": "string",
+            "description": "On-chain claim identifier."
+          },
+          "distributionId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Distribution cycle the claim came from."
+          },
+          "issuerWallet": {
+            "type": "string",
+            "nullable": true,
+            "description": "Issuer that distributed the cycle."
+          },
+          "cycleFrequency": {
+            "type": "string",
+            "nullable": true,
+            "description": "Configured distribution frequency for the cycle."
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Amount claimed."
+          },
+          "txHash": {
+            "type": "string",
+            "nullable": true,
+            "description": "Transaction that claimed the dividend."
+          },
+          "ledgerSequence": {
+            "type": "string",
+            "nullable": true,
+            "description": "Ledger the claim settled in."
+          },
+          "claimedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "RFC 3339 claim time."
+          }
+        },
+        "required": [
+          "claimId",
+          "amount"
+        ]
+      },
+      "DividendSummary": {
+        "type": "object",
+        "properties": {
+          "wallet": {
+            "type": "string"
+          },
+          "totalEarned": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Lifetime dividend allocations."
+          },
+          "totalClaimed": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Lifetime dividends claimed."
+          },
+          "totalPending": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "totalEarned - totalClaimed, floored at zero."
+          },
+          "cycleCount": {
+            "type": "integer",
+            "description": "Number of cycles the wallet was allocated in."
+          },
+          "computedAt": {
+            "type": "string",
+            "description": "RFC 3339 computation time."
+          }
+        },
+        "required": [
+          "wallet",
+          "totalEarned",
+          "totalClaimed",
+          "totalPending",
+          "cycleCount",
+          "computedAt"
+        ]
+      },
+      "SubscriptionStatus": {
+        "type": "object",
+        "properties": {
+          "wallet": {
+            "type": "string"
+          },
+          "keyId": {
+            "type": "string",
+            "description": "Contract id or key identifier the status was checked against."
+          },
+          "subscribed": {
+            "type": "boolean",
+            "description": "True when the balance meets the minimum and has not expired."
+          },
+          "balance": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Current on-chain key balance."
+          },
+          "minBalance": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,4})?$",
+            "description": "Minimum balance required for access."
+          },
+          "expiryLedger": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Ledger the current subscription lapses after."
+          },
+          "daysRemaining": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Whole days until expiry; 0 once expired."
+          },
+          "ledger": {
+            "type": "integer",
+            "description": "Ledger the answer was read at."
+          },
+          "checkedAt": {
+            "type": "string",
+            "description": "RFC 3339 check time."
+          }
+        },
+        "required": [
+          "wallet",
+          "keyId",
+          "subscribed",
+          "balance",
+          "minBalance",
+          "daysRemaining",
+          "ledger",
+          "checkedAt"
+        ]
+      },
+      "OnboardingStatus": {
+        "type": "object",
+        "properties": {
+          "wallet": {
+            "type": "string"
+          },
+          "tourCompleted": {
+            "type": "boolean"
+          },
+          "completedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "RFC 3339 completion time, preserved across repeat calls."
+          },
+          "updatedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "RFC 3339 time of the last write."
+          }
+        },
+        "required": [
+          "wallet",
+          "tourCompleted"
+        ]
       }
     }
   },
@@ -1163,6 +1541,486 @@
           },
           "Bad Request": {
             "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/royalties/earnings": {
+      "get": {
+        "summary": "Creator royalty earnings",
+        "description": "Lifetime royalty accruals, claims and the outstanding balance for the authenticated creator, with a per-transfer breakdown. Creator-only (seller or both) and scoped to the token's wallet. Figures are cached for 30 seconds and invalidated by royalty events.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "transfer_limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum number of royalty transfers to return (1-200).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/RoyaltyEarnings"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated wallet is not a creator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/royalties/history": {
+      "get": {
+        "summary": "Creator royalty claim history",
+        "description": "Royalties the authenticated creator has claimed, newest first, with the on-chain transaction that paid them. Cursor paginated and creator-only.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size (1-100).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque cursor from the previous page's meta.nextCursor.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "success": {
+                    "type": "boolean"
+                  },
+                  "data": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/RoyaltyClaim"
+                    }
+                  },
+                  "meta": {
+                    "type": "object",
+                    "properties": {
+                      "hasMore": {
+                        "type": "boolean"
+                      },
+                      "nextCursor": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Opaque cursor for the next page."
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated wallet is not a creator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dividends/claimable": {
+      "get": {
+        "summary": "Claimable dividends per cycle",
+        "description": "Claimable dividend amounts per distribution cycle for the authenticated holder wallet, derived from synced DividendDistributed / DividendClaimed events. Cached for 30 seconds and invalidated by dividend events.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/DividendClaimable"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dividends/claims": {
+      "get": {
+        "summary": "Dividend claim history",
+        "description": "Dividends the authenticated holder wallet has claimed, newest first, with amounts and the on-chain transaction that paid them. Cursor paginated.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size (1-100).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque cursor from the previous page's meta.nextCursor.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "success": {
+                    "type": "boolean"
+                  },
+                  "data": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/DividendClaim"
+                    }
+                  },
+                  "meta": {
+                    "type": "object",
+                    "properties": {
+                      "hasMore": {
+                        "type": "boolean"
+                      },
+                      "nextCursor": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Opaque cursor for the next page."
+                      },
+                      "limit": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dividends/summary": {
+      "get": {
+        "summary": "Dividend totals across every cycle",
+        "description": "Lifetime earned, claimed and pending dividend totals for the authenticated holder wallet, aggregated across every distribution cycle the wallet was allocated in.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/DividendSummary"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/subscriptions/status": {
+      "get": {
+        "summary": "Gated-content subscription status",
+        "description": "Whether a wallet holds the minimum key balance required to access gated content, with the expiry ledger and whole days remaining. Public by design: a content gate has to answer before the visitor is known to the platform, and the response only reflects public on-chain holdings. Cached for 30 seconds and evicted when a holding-change event is observed.",
+        "parameters": [
+          {
+            "name": "wallet",
+            "in": "query",
+            "required": false,
+            "description": "Stellar account (strkey) public key to check.",
+            "schema": {
+              "type": "string",
+              "pattern": "^G[A-Z2-7]{55}$"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "query",
+            "required": false,
+            "description": "Soroban contract id, or the key identifier the contract uses.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/SubscriptionStatus"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "'wallet' is missing or malformed, or 'key_id' is missing or malformed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/onboarding/status": {
+      "get": {
+        "summary": "Onboarding tour status",
+        "description": "Whether the authenticated wallet has completed the onboarding tour, and when. Called on every app load, so it is a single indexed row lookup.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/OnboardingStatus"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/onboarding/complete": {
+      "post": {
+        "summary": "Record onboarding tour completion",
+        "description": "Records that the authenticated wallet finished the onboarding tour. Idempotent: re-completing keeps the original completedAt timestamp.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/OnboardingStatus"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication token",
             "content": {
               "application/json": {
                 "schema": {

@@ -100,8 +100,12 @@ export async function bootstrap(): Promise<{ server: Server }> {
   // ---- Feature: Dividend Cycle Config ----
   const dividendCycleService = createDividendCycleService(dataSource);
 
+  // ---- Feature: Onboarding Tour Completion ----
+  const onboardingService = createOnboardingService(dataSource);
+
   // Read models projected from Soroban contract events: creator key buy
-  // limits, the integration ACL, curve migrations and atomic swap history.
+  // limits, the integration ACL, curve migrations, atomic swap history, creator
+  // royalty earnings and holder dividend cycles.
   const projections = createOnchainProjections({ dataSource, logger });
 
   // ---- Feature: Secondary Market ----

@@ -5,9 +5,16 @@ import { ContractAcl, type AclStatus } from "../models/ContractAcl.model";
 import { ContractAclLog } from "../models/ContractAclLog.model";
 import { CreatorKey } from "../models/CreatorKey.model";
 import { CurveMigration } from "../models/CurveMigration.model";
+import { DividendAllocation } from "../models/DividendAllocation.model";
+import { DividendClaim } from "../models/DividendClaim.model";
+import { DividendDistribution } from "../models/DividendDistribution.model";
+import { RoyaltyClaim } from "../models/RoyaltyClaim.model";
+import { RoyaltyEvent } from "../models/RoyaltyEvent.model";
 import type { AclRepositoryContract, AclUpdateInput } from "./acl.service";
 import type { AtomicSwapInput, SwapRepositoryContract } from "./atomic-swap.service";
 import type { CreatorKeyRepositoryContract } from "./creator-key.service";
+import type { DividendRepositoryContract } from "./dividend-distribution.service";
+import type { RoyaltyEarningsRepositoryContract } from "./royalty-earnings.service";
 import type {
   CurveMigrationExecutionInput,
   CurveMigrationProposalInput,
@@ -188,6 +195,154 @@ export function createSwapRepository(dataSource: DataSource): SwapRepositoryCont
       if (existing) return existing;
 
       return repo().save(repo().create(input));
+    },
+  };
+}
+
+export function createRoyaltyEarningsRepository(
+  dataSource: DataSource
+): RoyaltyEarningsRepositoryContract {
+  const events = (): Repository<RoyaltyEvent> => dataSource.getRepository(RoyaltyEvent);
+  const claims = (): Repository<RoyaltyClaim> => dataSource.getRepository(RoyaltyClaim);
+
+  return {
+    async totalsByCreator(creatorWallet) {
+      const row = await events()
+        .createQueryBuilder("r")
+        .select("COALESCE(SUM(CAST(r.amount AS DECIMAL)), 0)", "totalEarned")
+        .addSelect("COUNT(r.id)", "transferCount")
+        .where("r.creator_wallet = :creatorWallet", { creatorWallet })
+        .getRawOne<{ totalEarned: string | number | null; transferCount: string | number }>();
+
+      return {
+        totalEarned: row?.totalEarned === null || row?.totalEarned === undefined ? "0" : String(row.totalEarned),
+        transferCount: Number(row?.transferCount ?? 0),
+      };
+    },
+    async listTransfers(creatorWallet, { limit, offset }) {
+      return events().find({
+        where: { creatorWallet },
+        order: { paidAt: "DESC", id: "DESC" },
+        take: limit,
+        skip: offset ?? 0,
+      });
+    },
+    async claimTotalsByCreator(creatorWallet) {
+      const row = await claims()
+        .createQueryBuilder("c")
+        .select("COALESCE(SUM(CAST(c.amount AS DECIMAL)), 0)", "totalClaimed")
+        .addSelect("COUNT(c.id)", "claimCount")
+        .where("c.creator_wallet = :creatorWallet", { creatorWallet })
+        .getRawOne<{ totalClaimed: string | number | null; claimCount: string | number }>();
+
+      return {
+        totalClaimed: row?.totalClaimed === null || row?.totalClaimed === undefined ? "0" : String(row.totalClaimed),
+        claimCount: Number(row?.claimCount ?? 0),
+      };
+    },
+    async listClaims(creatorWallet, { limit, cursor }) {
+      const qb = claims()
+        .createQueryBuilder("claim")
+        .where("claim.creator_wallet = :creatorWallet", { creatorWallet })
+        .orderBy("claim.claimed_at", "DESC")
+        .addOrderBy("claim.id", "DESC")
+        .take(limit);
+
+      if (cursor) {
+        qb.andWhere(
+          "(claim.claimed_at < :claimedAt OR (claim.claimed_at = :claimedAt AND claim.id < :id))",
+          { claimedAt: cursor.claimedAt, id: cursor.id }
+        );
+      }
+
+      return qb.getMany();
+    },
+    async recordRoyaltyPaid(input) {
+      // Replaying the same ledger event must not double-count earnings, so the
+      // on-chain identity (tx hash plus ledger) is the idempotency key.
+      const existing = await events().findOne({
+        where: { txHash: input.txHash ?? "", ledgerSequence: input.ledgerSequence ?? "" },
+      });
+      if (existing) return;
+
+      await events().save(
+        events().create({
+          keyAddress: input.keyAddress,
+          creatorWallet: input.creatorWallet,
+          buyerWallet: input.buyerWallet,
+          amount: input.amount,
+          txHash: input.txHash,
+          ledgerSequence: input.ledgerSequence,
+          paidAt: input.paidAt,
+        })
+      );
+    },
+    async recordRoyaltyClaim(input) {
+      const existing = await claims().findOne({ where: { claimId: input.claimId } });
+      if (existing) return;
+
+      await claims().save(claims().create({ ...input }));
+    },
+  };
+}
+
+export function createDividendRepository(dataSource: DataSource): DividendRepositoryContract {
+  const distributions = (): Repository<DividendDistribution> =>
+    dataSource.getRepository(DividendDistribution);
+  const allocations = (): Repository<DividendAllocation> =>
+    dataSource.getRepository(DividendAllocation);
+  const claims = (): Repository<DividendClaim> => dataSource.getRepository(DividendClaim);
+
+  return {
+    async recordDistribution(input) {
+      // `dividend_distributions` has no ledger column, so the cycle is keyed on
+      // the transaction that created it plus the issuer, which is enough to stop
+      // a replayed `DividendDistributed` event opening a second cycle.
+      const existing = await distributions().findOne({
+        where: {
+          txHash: input.txHash ?? "",
+          issuerWallet: input.issuerWallet,
+          distributedAt: input.distributedAt,
+        },
+      });
+      if (existing) return;
+
+      await distributions().save(
+        distributions().create({
+          issuerWallet: input.issuerWallet,
+          totalAmount: input.totalAmount,
+          recipientCount: input.recipientCount,
+          cycleFrequency: input.cycleFrequency,
+          txHash: input.txHash,
+          distributedAt: input.distributedAt,
+        })
+      );
+    },
+    async recordAllocations(inputs) {
+      const repo = allocations();
+      for (const input of inputs) {
+        const existing = await repo.findOne({ where: { allocationId: input.allocationId } });
+        if (existing) continue;
+        await repo.save(repo.create({ ...input }));
+      }
+    },
+    async recordClaim(input) {
+      const repo = claims();
+      const existing = await repo.findOne({ where: { claimId: input.claimId } });
+      if (existing) return;
+      await repo.save(repo.create({ ...input }));
+    },
+    async allocationsByWallet(wallet) {
+      return allocations().find({
+        where: { recipientWallet: wallet },
+        order: { distributedAt: "DESC", id: "DESC" },
+      });
+    },
+    async claimsByWallet(wallet) {
+      return claims().find({
+        where: { recipientWallet: wallet },
+        order: { claimedAt: "DESC", id: "DESC" },
+      });
     },
   };
 }
