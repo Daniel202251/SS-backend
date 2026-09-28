@@ -30,6 +30,12 @@ describe("InvestmentService", () => {
 
     mockDataSource = {
       transaction: jest.fn().mockImplementation((cb) => cb(mockEntityManager)),
+      getRepository: jest.fn().mockReturnValue({
+        findOne: jest.fn().mockResolvedValue(null),
+        find: jest.fn().mockResolvedValue([]),
+        create: jest.fn(),
+        save: jest.fn(),
+      }),
     } as any;
 
     investmentService = new InvestmentService(mockDataSource);
