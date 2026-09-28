@@ -1,4 +1,4 @@
-import { Router, type RequestHandler } from "express";
+import { Router } from "express";
 import { AdminSettlementController } from "../../controllers/admin-settlement.controller";
 import type { AdminSettlementService } from "../../services/admin-settlement.service";
 import { authenticateAdminJWT } from "../../middleware/admin-auth.middleware";

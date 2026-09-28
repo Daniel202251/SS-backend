@@ -20,8 +20,6 @@ import { NotificationService } from "./notification.service";
 import { NotificationType } from "../types/enums";
 import type { InvoiceEscrowContractService } from "./stellar/invoice-escrow-contract.service";
 
-const DECIMAL_SCALE_TO_STROOP_FACTOR = 10n ** 3n;
-
 export interface AdminSettleInvoiceInput {
   invoiceId: string;
   repaymentAmount: string;
