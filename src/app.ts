@@ -147,6 +147,7 @@ export interface AppDependencies {
   extensionService?: InvoiceExtensionService;
   portfolioService?: PortfolioService;
   adminMetricsService?: AdminMetricsService;
+  invoiceEscrowContractService?: import("./services/stellar/invoice-escrow-contract.service").InvoiceEscrowContractService;
   logger?: AppLogger;
   metricsEnabled?: boolean;
   metricsRegistry?: MetricsRegistry;
@@ -192,6 +193,7 @@ export function createApp({
   portfolioService,
   extensionService,
   adminMetricsService,
+  invoiceEscrowContractService,
   logger: appLogger = logger,
   metricsEnabled = true,
   metricsRegistry = new MetricsRegistry(),
@@ -452,6 +454,9 @@ export function createApp({
         extensionService,
         metricsService: adminMetricsService,
         adminSettlementService,
+        adminWallets: config.admin.wallets || [],
+        invoiceEscrowContractService
+
       })
     );
   }

@@ -191,6 +191,7 @@ describe("checkContractNotPaused", () => {
       logger: silentLogger,
     })(req, res, next);
 
+
     expect(resMock.status).not.toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();
   });
