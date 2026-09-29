@@ -4,6 +4,7 @@ import { Request, Response, NextFunction } from "express";
 
 import { ipWhitelistMiddleware } from "@/middleware/ip-whitelist.middleware";
 import { createAuthMiddleware, requireAdmin } from "@/middleware/auth.middleware";
+import { User } from "@/models/User.model";
 import { requireAdminRole } from "@/middleware/require-admin-role.middleware";
 import type { AuthService } from "@/services/auth.service";
 import type { AclService } from "@/services/acl.service";
@@ -108,7 +109,7 @@ export function createAdminRouter({
   // thing standing between a caller and the platform's numbers. A valid
   // `x-admin-key` still passes, which keeps the older KYC and invoice review
   // flows working exactly as they did before this gate existed.
-  const requireAdmin = requireAdminRole();
+  const requireAdminRoleMiddleware = requireAdminRole();
   router.use((req: Request, res: Response, next: NextFunction): void => {
     const adminKey = req.headers["x-admin-key"];
     if (adminKey && adminKey === process.env.ADMIN_API_KEY) {
@@ -122,7 +123,7 @@ export function createAdminRouter({
         next(err);
         return;
       }
-      requireAdmin(req, res, next);
+      requireAdminRoleMiddleware(req, res, next);
     });
   });
 
@@ -155,8 +156,8 @@ export function createAdminRouter({
 
       router.get(
         "/invoices",
-        authenticateJWT as any,
-        requireAdminJWT as any,
+        authenticateJWT,
+        requireAdminJWT,
         (req, res) => {
           listInvoices(req, res, invoiceService);
         }
@@ -164,10 +165,13 @@ export function createAdminRouter({
 
       router.patch(
         "/invoices/:invoiceId",
-        authenticateJWT as any,
-        requireAdminJWT as any,
+        authenticateJWT,
+        requireAdminJWT,
         (req, res) => {
-          reviewInvoice(req, res, invoiceService, invoiceEscrowContractService);
+          reviewInvoice(req, res, invoiceService, invoiceEscrowContractService, async (sellerId) => {
+            const seller = await dataSource.getRepository(User).findOne({ where: { id: sellerId } });
+            return seller?.stellarAddress ?? "UNKNOWN";
+          });
         }
       );
     }

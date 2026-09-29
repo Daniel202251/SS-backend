@@ -1,28 +1,39 @@
 import { Request, Response } from "express";
+import type { ParamsDictionary } from "express-serve-static-core";
 import { InvoiceService } from "../../services/invoice.service";
 import { ServiceError } from "../../utils/service-error";
 import { logger } from "../../observability/logger";
-import { NotificationService } from "../../services/notification.service";
 import { InvoiceEscrowContractService } from "../../services/stellar/invoice-escrow-contract.service";
-
-interface ReviewInvoiceParams {
-  invoiceId: string;
-}
 
 interface ReviewInvoiceBody {
   action: "approve" | "reject";
   reason?: string;
 }
 
+/** USDC has 7 decimals, so a decimal amount becomes stroops by scaling. */
+const STROOPS_DECIMALS = 7;
+
+function toStroops(amount: string): string {
+  const [whole, fraction = ""] = amount.split(".");
+  const scaled = `${whole}${fraction.padEnd(STROOPS_DECIMALS, "0").slice(0, STROOPS_DECIMALS)}`;
+  return scaled.replace(/^0+(?=\d)/, "");
+}
+
 export async function reviewInvoice(
-  req: Request<ReviewInvoiceParams, any, ReviewInvoiceBody>,
+  req: Request<ParamsDictionary, unknown, ReviewInvoiceBody>,
   res: Response,
   invoiceService: InvoiceService,
-  contractService?: InvoiceEscrowContractService
+  contractService?: InvoiceEscrowContractService,
+  resolveSellerAddress?: (sellerId: string) => Promise<string>
 ) {
   try {
     const { action, reason } = req.body;
-    const { invoiceId } = req.params;
+    const rawInvoiceId = req.params.invoiceId;
+    const invoiceId = Array.isArray(rawInvoiceId) ? rawInvoiceId[0] : rawInvoiceId;
+
+    if (!invoiceId) {
+      return res.status(400).json({ error: { code: "INVOICE_ID_REQUIRED", message: "Invoice id is required" } });
+    }
 
     if (action === "reject" && (!reason || !reason.trim())) {
       return res.status(400).json({ error: { code: "REASON_REQUIRED", message: "Reason is required when rejecting an invoice" } });
@@ -43,8 +54,10 @@ export async function reviewInvoice(
         try {
           await contractService.executeRegisterInvoice({
             invoiceId,
-            sellerAddress: (result.seller as any).stellarAddress || "UNKNOWN",
-            amountStroops: result.amountStroops || "0"
+            sellerAddress: resolveSellerAddress
+              ? await resolveSellerAddress(result.sellerId)
+              : "UNKNOWN",
+            amountStroops: toStroops(result.amount)
           });
         } catch (contractError) {
           logger.error("Failed to register invoice on Soroban contract", { error: contractError, invoiceId });

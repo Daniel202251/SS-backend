@@ -18,8 +18,6 @@ export const DEFAULT_PAUSE_CHECK_TIMEOUT_MS = 3_000;
  */
 export const PAUSED_RETRY_AFTER_SECONDS = 15;
 
-import { AppError } from "../utils/http-error";
-
 export interface ContractPauseGuardOptions {
   contractGuardService: ContractGuardService;
   /** Contract to check. When null the guard is inert and every request passes. */
