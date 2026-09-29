@@ -7,6 +7,7 @@ import { Investment } from "../../src/models/Investment.model";
 import { InvoiceStatus, InvestmentStatus } from "../../src/types/enums";
 import { logger } from "../../src/observability/logger";
 import { ServiceError } from "../../src/utils/service-error";
+import { NotificationService } from "../../src/services/notification.service";
 
 /**
  * Minimal in-memory TypeORM stand-in shared by InvestmentService and
@@ -80,6 +81,10 @@ function createFakeDataSource(invoice: Invoice) {
   };
 
   const dataSource = {
+    // InvestmentService requires a current terms acknowledgement before it
+    // creates an investment. This fixture focuses on settlement behavior, so
+    // its repository stand-in represents an already acknowledged investor.
+    getRepository: () => ({ findOne: async () => ({ acknowledgedAt: new Date() }) }),
     transaction: async (callback: (manager: FakeManager) => Promise<unknown>) => callback(manager),
   } as unknown as DataSource;
 
@@ -769,6 +774,38 @@ describe("Settlement integration: pro-rata distribution edge cases", () => {
     expect(returnByInvestor.get(investorIds[1])).toBe(1000);
   });
 
+  it("accounts for fractional distribution remainder without losing precision", async () => {
+    const invoice = createInvoice({ amount: "3.0000", netAmount: "3.0000" });
+    const { dataSource, investments } = createFakeDataSource(invoice);
+
+    await fullyFundInvoice(dataSource, investments, invoice, [
+      { amount: "1.0000", wallet: "GINVESTOR_REMAINDER_A" + "A".repeat(42) },
+      { amount: "1.0000", wallet: "GINVESTOR_REMAINDER_B" + "B".repeat(42) },
+      { amount: "1.0000", wallet: "GINVESTOR_REMAINDER_C" + "C".repeat(42) },
+    ]);
+
+    const settlementService = new SettlementService(dataSource);
+    const result = await settlementService.settleInvoice({
+      invoiceId: invoice.id,
+      proceeds: "1.0000",
+      actorWallet: "GADMINWALLET1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    });
+
+    expect(result.settlements.map(({ actualReturn }) => actualReturn)).toEqual([
+      "0.3333",
+      "0.3333",
+      "0.3333",
+    ]);
+    expect(result.totalDistributed).toBe("0.9999");
+    expect(result.remainder).toBe("0.0001");
+    expect(
+      result.settlements.reduce(
+        (total, { actualReturn }) => total + BigInt(actualReturn.replace(".", "")),
+        0n
+      ) + BigInt(result.remainder.replace(".", ""))
+    ).toBe(10_000n);
+  });
+
   it("preserves settlement result structure with all required fields", async () => {
     const invoice = createInvoice();
     const { dataSource, invoices, investments } = createFakeDataSource(invoice);
@@ -908,5 +945,48 @@ describe("Settlement integration: logging verification", () => {
 
     expect(findSettlementTransitionLog(infoSpy)).toBeUndefined();
     expect(findSettlementCompletionLog(infoSpy)).toBeUndefined();
+  });
+
+  it("completes settlement and logs notification failure when delivery fails", async () => {
+    const errorSpy = jest.spyOn(logger, "error");
+    const invoice = createInvoice();
+    const { dataSource, invoices, investments } = createFakeDataSource(invoice);
+    const notificationService = {
+      createNotification: jest
+        .fn()
+        .mockRejectedValue(new Error("notification provider unavailable")),
+    } as unknown as NotificationService;
+
+    await fullyFundInvoice(dataSource, investments, invoice, [
+      { amount: "6000.0000", wallet: "GINVESTOR_NOTIFICATION" + "N".repeat(40) },
+    ]);
+
+    const settlementService = new SettlementService(
+      dataSource,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      notificationService
+    );
+    const result = await settlementService.settleInvoice({
+      invoiceId: invoice.id,
+      proceeds: "6000.0000",
+      actorWallet: "GADMINWALLET1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    });
+
+    expect(result.status).toBe(InvoiceStatus.SETTLED);
+    expect(invoices.get(invoice.id)?.status).toBe(InvoiceStatus.SETTLED);
+    expect(investments.get(result.settlements[0]!.investmentId)?.status).toBe(
+      InvestmentStatus.SETTLED
+    );
+    expect(notificationService.createNotification).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "settlement.notifications.failed",
+      expect.objectContaining({
+        invoiceId: invoice.id,
+        error: "notification provider unavailable",
+      })
+    );
   });
 });
