@@ -6,7 +6,8 @@ export type AuthFailureReason =
   | "expired_token"
   | "invalid_signature"
   | "invalid_token"
-  | "unparseable_token";
+  | "unparseable_token"
+  | "insufficient_role";
 
 export interface AuthFailureDetails {
   reason: AuthFailureReason;

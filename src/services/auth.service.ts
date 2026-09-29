@@ -95,8 +95,10 @@ export interface ChallengeResponse {
 }
 
 export interface VerifyChallengeInput {
-  publicKey: string;
-  nonce: string;
+  publicKey?: string;
+  wallet?: string;
+  nonce?: string;
+  challenge?: string;
   signature: string;
   ipAddress?: string;
 }
@@ -223,8 +225,16 @@ export class AuthService {
 
   async verifyChallenge(input: VerifyChallengeInput): Promise<VerifyChallengeResponse> {
     try {
-      const sanitizedKey = this.assertValidPublicKey(input.publicKey);
-      const sanitizedNonce = this.assertNonEmptyString(input.nonce, "nonce").trim();
+      const rawKey = input.publicKey ?? input.wallet;
+      if (!rawKey) {
+        throw new HttpError(400, "publicKey or wallet is required.");
+      }
+      const sanitizedKey = this.assertValidPublicKey(rawKey);
+      const rawNonce = input.nonce ?? input.challenge;
+      if (!rawNonce) {
+        throw new HttpError(400, "nonce or challenge is required.");
+      }
+      const sanitizedNonce = this.assertNonEmptyString(rawNonce, "nonce").trim();
       const sanitizedSig = this.assertNonEmptyString(input.signature, "signature").trim();
 
       if (sanitizedNonce.length < MIN_NONCE_LENGTH) {
@@ -431,7 +441,7 @@ export class AuthService {
         });
         throw new HttpError(500, "Failed to fetch current user.");
       }
-if (!user) {
+      if (!user) {
         throw new HttpError(
           401,
           "Invalid or expired token.",
@@ -512,7 +522,9 @@ if (!user) {
         this.logger?.error("upsertUser failed", { error, publicKey });
         throw error;
       }
-    })();
+    })().finally(() => {
+      this.userUpsertInflight.delete(publicKey);
+    });
 
     this.userUpsertInflight.set(publicKey, promise);
     return promise;
@@ -530,15 +542,16 @@ if (!user) {
 
     return jwt.sign(
       {
+        sub: user.stellarAddress,
         stellarAddress: user.stellarAddress,
+        wallet: user.stellarAddress,
         walletAddress: user.stellarAddress,
+        role: user.userType,
+        userType: user.userType,
         userId: user.id,
       },
       this.config.jwt.secret,
-      {
-        ...signOptions,
-        subject: user.stellarAddress,
-      }
+      signOptions
     );
   }
 

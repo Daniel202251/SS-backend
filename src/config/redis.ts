@@ -19,7 +19,7 @@ export function createRedisClient(options?: RedisOptions): Redis {
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
     connectTimeout: 2000,
-    retryStrategy: (times) => {
+    retryStrategy: (times: number) => {
       if (times > 3) {
         return null;
       }
