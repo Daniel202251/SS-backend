@@ -199,6 +199,7 @@ export async function bootstrap(): Promise<{ server: Server }> {
     secondaryMarketService,
     watchlistService,
     settlementWorker,
+    invoiceEscrowContractService: invoiceEscrowContract,
     config,
     logger,
     metricsEnabled: config.observability.metricsEnabled,
