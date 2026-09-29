@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { DataSource } from "typeorm";
+import { Request, Response, NextFunction } from "express";
 
 import { ipWhitelistMiddleware } from "@/middleware/ip-whitelist.middleware";
 import { createAuthMiddleware } from "@/middleware/auth.middleware";
@@ -9,6 +10,7 @@ import type { AclService } from "@/services/acl.service";
 import type { InvoiceService } from "@/services/invoice.service";
 import type { InvoiceExtensionService } from "@/services/invoice-extension.service";
 import type { AdminMetricsService, AdminMetricsQuery } from "@/services/admin-metrics.service";
+import type { AdminSettlementService } from "@/services/admin-settlement.service";
 import { approveKYC } from "./approve-kyc";
 import { rejectKYC } from "./reject-kyc";
 import { revokeKYC } from "./revoke-kyc";
@@ -19,6 +21,7 @@ import { createRoyaltyAnalyticsService } from "@/services/royalty-analytics.serv
 import { createAdminRoyaltiesRouter } from "./royalties.routes";
 import { createAnalyticsSnapshotService } from "@/services/analytics-snapshot.service";
 import { createAdminAnalyticsTrendsRouter } from "./analytics-trends.routes";
+import { createAdminSettlementRouter } from "./settlement.routes";
 import { AppError } from "@/utils/http-error";
 import { logger } from "@/observability/logger";
 import type { AuthenticatedRequest } from "@/types/auth";
@@ -32,6 +35,8 @@ export interface AdminRouterDependencies {
   extensionService?: InvoiceExtensionService;
   /** Issue #478 — platform metrics aggregation for the admin dashboard. */
   metricsService?: AdminMetricsService;
+  /** Optional: enables POST /invoices/:invoiceId/settle for admin settlement. */
+  adminSettlementService?: AdminSettlementService;
 }
 
 interface ExtensionReviewBody {
@@ -77,8 +82,9 @@ export function createAdminRouter({
   authService,
   aclService,
   invoiceService,
-  extensionService: _extensionService,
+extensionService: _extensionService,
   metricsService: _metricsService,
+  adminSettlementService,
 }: AdminRouterDependencies): Router {
   const router = Router();
 
@@ -143,14 +149,14 @@ export function createAdminRouter({
   }
 
   // ---- Platform metrics (issue #478) ----
-  if (metricsService) {
+  if (_metricsService) {
     router.get("/metrics", async (req: Request, res: Response, next: NextFunction) => {
       try {
         const query: AdminMetricsQuery = {
           from: parseDateBoundary(req.query.from, "from"),
           to: parseDateBoundary(req.query.to, "to"),
         };
-        const metrics = await metricsService.getMetrics(query);
+        const metrics = await _metricsService.getMetrics(query);
         res.status(200).json({ success: true, data: metrics });
       } catch (error) {
         next(error);
@@ -159,7 +165,7 @@ export function createAdminRouter({
   }
 
   // ---- Invoice deadline extension review ----
-  if (extensionService) {
+  if (_extensionService) {
     router.post(
       "/invoices/:invoiceId/extensions/:requestId/review",
       async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -178,7 +184,7 @@ export function createAdminRouter({
           }
 
           const reviewedBy = req.user?.stellarAddress ?? "admin";
-          const result = await extensionService.reviewExtension({
+          const result = await _extensionService.reviewExtension({
             invoiceId: String(req.params.invoiceId),
             requestId: String(req.params.requestId),
             decision,
@@ -221,6 +227,10 @@ export function createAdminRouter({
       return createAdminAnalyticsTrendsRouter({ analyticsSnapshotService });
     })
   );
+
+  if (adminSettlementService) {
+    router.use("/", createAdminSettlementRouter({ adminSettlementService }));
+  }
 
   return router;
 }

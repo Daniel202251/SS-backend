@@ -71,7 +71,7 @@ export class IPFSService {
 
     try {
       const formData = new FormData();
-      const blob = new Blob([fileBuffer], { type: mimeType });
+      const blob = new Blob([new Uint8Array(fileBuffer)], { type: mimeType });
       formData.append("file", blob, filename);
 
       const response = await this.fetchImplementation(
