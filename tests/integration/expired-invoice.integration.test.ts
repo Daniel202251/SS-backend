@@ -3,7 +3,6 @@ import { DataSource, EntityManager } from "typeorm";
 import { InvestmentService } from "../../src/services/investment.service";
 import { Invoice } from "../../src/models/Invoice.model";
 import { Investment } from "../../src/models/Investment.model";
-import { InvestorAcknowledgement } from "../../src/models/InvestorAcknowledgement.model";
 import { InvoiceStatus, InvestmentStatus } from "../../src/types/enums";
 import { ServiceError } from "../../src/utils/service-error";
 
@@ -37,12 +36,10 @@ function createFakeDataSource(invoice: Invoice) {
 
   const dataSource = {
     transaction: (callback: (em: typeof manager) => Promise<unknown>) => callback(manager),
-    // Issue #473 â€” the accreditation gate looks the investor's terms
-    // acknowledgement up before creating the investment.
-    getRepository: (entity: unknown) =>
-      entity === InvestorAcknowledgement
-        ? { findOne: async () => ({ acknowledgedAt: new Date() }) }
-        : manager,
+    getRepository: () => ({
+      findOne: jest.fn().mockResolvedValue({ walletAddress: "test", termsVersion: "1", acknowledgedAt: new Date() }),
+      find: jest.fn().mockResolvedValue([]),
+    }),
   } as unknown as DataSource;
 
   return { dataSource, investments };
@@ -57,7 +54,7 @@ function createInvoice(overrides: Partial<Invoice> = {}): Invoice {
     amount: "1000.0000",
     discountRate: "0.00",
     netAmount: "1000.0000",
-    dueDate: new Date(Date.now() - 24 * 60 * 60 * 1000), // yesterday â€” expired
+    dueDate: new Date(Date.now() - 24 * 60 * 60 * 1000), // yesterday — expired
     ipfsHash: "QmExpiredHash",
     riskScore: null,
     status: InvoiceStatus.PUBLISHED,

@@ -29,6 +29,14 @@ export class Notification {
   @Column({ type: "boolean", default: false })
   read!: boolean;
 
+  /**
+   * `<eventId>:<userId>` for notifications from the lifecycle dispatcher;
+   * unique, so one event can never notify the same user twice.
+   */
+  @Column({ name: "dedupe_key", type: "varchar", length: 255, nullable: true })
+  @Index("uq_notifications_dedupe_key", { unique: true })
+  dedupeKey!: string | null;
+
   @Column({ type: "timestamptz", default: () => "CURRENT_TIMESTAMP" })
   timestamp!: Date;
 

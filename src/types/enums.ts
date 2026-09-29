@@ -70,10 +70,12 @@ export enum NotificationType {
   INVOICE_FUNDED = "invoice_funded",
   INVOICE_SETTLED = "invoice_settled",
   INVESTMENT_CREATED = "investment_created",
-  SETTLEMENT_RECEIVED = "settlement_received",
-  REFUND_PROCESSED = "refund_processed",
+  INVOICE_APPROVED = "invoice_approved",
   /** Funding deadline extended after admin approval (issue #477). */
   INVOICE_DEADLINE_EXTENDED = "invoice_deadline_extended",
+  INVOICE_MATURED = "invoice_matured",
+  SETTLEMENT_RECEIVED = "settlement_received",
+  REFUND_PROCESSED = "refund_processed",
 }
 
 /** Seller funding-deadline extension request lifecycle (issue #477). */

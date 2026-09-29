@@ -6,6 +6,10 @@ import { SettlementEvent } from "../models/SettlementEvent.model";
 import { NotificationType } from "../types/enums";
 import { HttpError } from "../utils/http-error";
 import type { NotificationInput } from "../lib/invoice-notifications";
+import type {
+  DedupedNotification,
+  DedupedNotificationStore,
+} from "../lib/notification-dispatcher";
 
 export interface NotificationPage {
   data: Notification[];
@@ -424,6 +428,17 @@ class TypeOrmNotificationRepository implements NotificationRepositoryContract {
       hasMore,
     };
   }
+}
+
+/** Store for the lifecycle dispatcher; rows whose dedupe key exists are skipped. */
+export function createDedupedNotificationStore(dataSource: DataSource): DedupedNotificationStore {
+  const repository = dataSource.getRepository(Notification);
+  return {
+    async insertIgnoringDuplicates(entries: DedupedNotification[]) {
+      if (entries.length === 0) return;
+      await repository.createQueryBuilder().insert().values(entries).orIgnore().execute();
+    },
+  };
 }
 
 export function createNotificationService(dataSource: DataSource): NotificationService {

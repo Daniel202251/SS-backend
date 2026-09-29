@@ -28,10 +28,6 @@ import { createKeysRouter } from "./routes/keys.routes";
 import { createDividendsRouter } from "./routes/dividends.routes";
 import { createSecondaryMarketRouter } from "./routes/secondary-market.routes";
 import { createWatchlistRouter } from "./routes/watchlist.routes";
-import { createRoyaltiesRouter } from "./routes/royalties.routes";
-import { createSubscriptionsRouter } from "./routes/subscriptions.routes";
-import { createOnboardingRouter } from "./routes/onboarding.routes";
-import { createSwapRouter } from "./routes/swap.routes";
 import type { RatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import type { DividendCycleService } from "./services/dividend-cycle.service";
 import type { DividendDistributionService } from "./services/dividend-distribution.service";
@@ -42,12 +38,17 @@ import type { AtomicSwapService } from "./services/atomic-swap.service";
 import type { AclService } from "./services/acl.service";
 import type { CreatorKeyService } from "./services/creator-key.service";
 import type { CurveMigrationService } from "./services/curve-migration.service";
+import { createSwapRouter } from "./routes/swap.routes";
+import { createRoyaltiesRouter } from "./routes/royalties.routes";
+import { createSubscriptionsRouter } from "./routes/subscriptions.routes";
+import { createOnboardingRouter } from "./routes/onboarding.routes";
 
 import type { AuthService } from "./services/auth.service";
 import type { NotificationService } from "./services/notification.service";
 import type { InvoiceService } from "./services/invoice.service";
 import type { InvestmentService } from "./services/investment.service";
 import type { SettlementService } from "./services/settlement.service";
+import type { AdminSettlementService } from "./services/admin-settlement.service";
 import type { MarketplaceService } from "./services/marketplace.service";
 import type { SellerService } from "./services/seller.service";
 import type { KycService } from "./services/kyc.service";
@@ -125,20 +126,16 @@ export interface AppDependencies {
   invoiceService?: InvoiceService;
   investmentService?: InvestmentService;
   settlementService?: SettlementService;
+  adminSettlementService?: AdminSettlementService;
   marketplaceService?: MarketplaceService;
   sellerService?: SellerService;
   kycService?: KycService;
   ratingsLeaderboardService?: RatingsLeaderboardService;
   dividendCycleService?: DividendCycleService;
-  /** Issue #538 — holder dividend distribution projections. */
   dividendDistributionService?: DividendDistributionService;
-  /** Issue #537 — creator royalty earnings projections. */
   royaltyEarningsService?: RoyaltyEarningsService;
-  /** Issue #539 — gated-content subscription status. */
   subscriptionStatusService?: SubscriptionStatusService;
-  /** Issue #540 — onboarding tour completion. */
   onboardingService?: OnboardingService;
-  /** Issue #145 — atomic swap history projections. */
   swapService?: AtomicSwapService;
   aclService?: AclService;
   creatorKeyService?: CreatorKeyService;
@@ -174,6 +171,7 @@ export function createApp({
   invoiceService,
   investmentService,
   settlementService,
+  adminSettlementService,
   marketplaceService,
   sellerService,
   kycService,
@@ -184,6 +182,9 @@ export function createApp({
   subscriptionStatusService,
   onboardingService,
   swapService,
+  aclService,
+  creatorKeyService,
+  curveMigrationService,
   secondaryMarketService,
   watchlistService,
   settlementWorker,
@@ -191,9 +192,6 @@ export function createApp({
   portfolioService,
   extensionService,
   adminMetricsService,
-  aclService,
-  creatorKeyService,
-  curveMigrationService,
   logger: appLogger = logger,
   metricsEnabled = true,
   metricsRegistry = new MetricsRegistry(),
@@ -453,6 +451,7 @@ export function createApp({
         invoiceService,
         extensionService,
         metricsService: adminMetricsService,
+        adminSettlementService,
       })
     );
   }

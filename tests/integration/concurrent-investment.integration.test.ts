@@ -64,6 +64,10 @@ function createSerializedFakeDataSource(invoice: Invoice) {
       txChain = next.catch(() => {});
       return next;
     },
+    getRepository: () => ({
+      findOne: jest.fn().mockResolvedValue({ walletAddress: "test", termsVersion: "1", acknowledgedAt: new Date() }),
+      find: jest.fn().mockResolvedValue([]),
+    }),
   } as unknown as DataSource;
 
   // Issue #473 â€” the accreditation gate looks the investor's terms

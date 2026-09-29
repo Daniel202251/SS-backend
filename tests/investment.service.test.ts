@@ -30,14 +30,11 @@ describe("InvestmentService", () => {
 
     mockDataSource = {
       transaction: jest.fn().mockImplementation((cb) => cb(mockEntityManager)),
-      // Issue #473 — the accreditation gate reads the investor's terms
-      // acknowledgement off the data source before any investment is created.
       getRepository: jest.fn().mockReturnValue({
-        findOne: jest.fn().mockResolvedValue({
-          walletAddress: INVESTOR_WALLET,
-          termsVersion: process.env.TERMS_VERSION ?? "1",
-          acknowledgedAt: new Date(),
-        }),
+        findOne: jest.fn().mockResolvedValue({ walletAddress: INVESTOR_WALLET, termsVersion: "1", acknowledgedAt: new Date() }),
+        find: jest.fn().mockResolvedValue([]),
+        create: jest.fn(),
+        save: jest.fn(),
       }),
     } as any;
 
