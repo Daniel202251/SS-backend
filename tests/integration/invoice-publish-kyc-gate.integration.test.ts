@@ -98,7 +98,7 @@ function makeSeller(kycStatus: KYCStatus | null): User {
  */
 function seedPublishableInvoice(repo: InMemoryInvoiceRepository, seller: User): Invoice {
   const now = new Date();
-  const invoice: Invoice = {
+  const invoice = {
     id: crypto.randomUUID(),
     sellerId: seller.id,
     invoiceNumber: `INV-${crypto.randomBytes(4).toString("hex")}`,

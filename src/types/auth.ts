@@ -12,6 +12,7 @@ export interface PublicUser {
   isSuspended?: boolean;
   createdAt: Date;
   updatedAt: Date;
+  role?: "admin" | "user";
 }
 
 // Existing user type

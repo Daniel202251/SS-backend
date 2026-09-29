@@ -9,11 +9,17 @@ export enum UserType {
   ADMIN = "admin",
 }
 
+/** Roles accepted by the administrative endpoints. */
+export enum AdminRole {
+  ADMIN = "admin",
+}
+
 export enum KYCStatus {
   PENDING = "pending",
   IN_REVIEW = "in_review",
   APPROVED = "approved",
   REJECTED = "rejected",
+  EXPIRED = "expired",
 }
 
 export enum InvoiceStatus {
@@ -65,6 +71,26 @@ export enum NotificationType {
   INVOICE_FUNDED = "invoice_funded",
   INVOICE_SETTLED = "invoice_settled",
   INVESTMENT_CREATED = "investment_created",
+  INVOICE_APPROVED = "invoice_approved",
+  INVOICE_DEADLINE_EXTENDED = "invoice_deadline_extended",
+  INVOICE_MATURED = "invoice_matured",
   SETTLEMENT_RECEIVED = "settlement_received",
   REFUND_PROCESSED = "refund_processed",
+  /** Funding deadline extended after admin approval (issue #477). */
+  INVOICE_DEADLINE_EXTENDED = "invoice_deadline_extended",
+}
+
+/** Seller funding-deadline extension request lifecycle (issue #477). */
+export enum ExtensionRequestStatus {
+  PENDING = "pending",
+  APPROVED = "approved",
+  REJECTED = "rejected",
+}
+
+/** Secondary market listing status for invoice fraction trading. */
+export enum ListingStatus {
+  ACTIVE = "active",
+  SOLD = "sold",
+  CANCELLED = "cancelled",
+  EXPIRED = "expired",
 }

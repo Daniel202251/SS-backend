@@ -84,6 +84,8 @@ export interface AppConfig {
   admin: {
     ipWhitelist: string[];
   };
+  /** Investor accreditation terms version (issue #473). Bumping forces re-ack. */
+  termsVersion: string;
   cache: {
     redisUrl?: string;
     invoicesListTtlSeconds: number;
@@ -409,6 +411,8 @@ export function getConfig(): AppConfig {
     admin: {
       ipWhitelist: parseCsv(process.env.ADMIN_IP_WHITELIST),
     },
+
+    termsVersion: (process.env.TERMS_VERSION?.trim() || "1"),
 
     cache: {
       redisUrl: process.env.REDIS_URL || undefined,
