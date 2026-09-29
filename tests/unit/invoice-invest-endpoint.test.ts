@@ -8,6 +8,7 @@ import { createInvoiceStateMachine } from "../../src/lib/invoice-state-machine";
 import { createErrorMiddleware } from "../../src/middleware/error.middleware";
 import { resetRateLimitStores } from "../../src/middleware/rate-limit-wallet.middleware";
 import { Investment } from "../../src/models/Investment.model";
+import { InvestorAcknowledgement } from "../../src/models/InvestorAcknowledgement.model";
 import { Invoice } from "../../src/models/Invoice.model";
 import { InvoiceStatusHistory } from "../../src/models/InvoiceStatusHistory.model";
 import type { AppLogger } from "../../src/observability/logger";
@@ -176,6 +177,12 @@ function createFakeDatabase(initial: Invoice, { interfere = false } = {}) {
         throw error;
       }
     },
+    // Issue #473 — the accreditation gate looks the investor's terms
+    // acknowledgement up before creating the investment.
+    getRepository: (entity: unknown) =>
+      entity === InvestorAcknowledgement
+        ? { findOne: async () => ({ acknowledgedAt: new Date() }) }
+        : { find: async () => [] },
   } as unknown as DataSource;
 
   return {
