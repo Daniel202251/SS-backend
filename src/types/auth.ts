@@ -11,6 +11,7 @@ export interface PublicUser {
   isKycVerified?: boolean;
   createdAt: Date;
   updatedAt: Date;
+  role?: "admin" | "user";
 }
 
 // Existing user type

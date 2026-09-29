@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import crypto from "crypto";
+import { z } from "zod";
 import { submitInvoiceSchema } from "@/lib/invoice-submission.schema";
 import { adminNotificationQueue } from "@/services/admin-notification-queue.service";
 import { InvoiceStatus, UserType } from "@/types/enums";
@@ -31,7 +32,7 @@ export async function submitInvoice(
 
     const parseResult = submitInvoiceSchema.safeParse(req.body);
     if (!parseResult.success) {
-      const fieldErrors = parseResult.error.issues.map((e) => ({
+      const fieldErrors = parseResult.error.issues.map((e: z.ZodIssue) => ({
         field: e.path.join(".") || "unknown",
         message: e.message,
         code: e.code,

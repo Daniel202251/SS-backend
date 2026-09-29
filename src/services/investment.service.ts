@@ -6,9 +6,11 @@ import {
 } from "typeorm";
 import { Invoice } from "../models/Invoice.model";
 import { Investment } from "../models/Investment.model";
+import { InvestorAcknowledgement } from "../models/InvestorAcknowledgement.model";
 import { InvoiceStatus, InvestmentStatus } from "../types/enums";
 import { ServiceError } from "../utils/service-error";
 import { Decimal } from "decimal.js";
+import { getCurrentTermsVersion } from "./investor-acknowledgement.service";
 import {
   createInvoiceStateMachine,
   entityManagerTransitionStore,
@@ -136,6 +138,34 @@ export class InvestmentService {
     private readonly stateMachine: InvoiceStateMachine = createInvoiceStateMachine(),
     private readonly investmentNotifier?: InvestmentNotifier
   ) {}
+
+  /**
+   * Issue #473 — block investment until the wallet has acknowledged the
+   * current TERMS_VERSION. Prior acknowledgements for older versions do not
+   * satisfy this check (re-ack required on bump).
+   */
+  private async assertAccreditationAcknowledged(walletAddress: string | null | undefined): Promise<void> {
+    const wallet = walletAddress?.trim();
+    if (!wallet) {
+      throw new ServiceError(
+        "ACKNOWLEDGEMENT_REQUIRED",
+        "Investor accreditation acknowledgement is required before investing",
+        403
+      );
+    }
+    const currentVersion = getCurrentTermsVersion();
+    const ack = await this.dataSource.getRepository(InvestorAcknowledgement).findOne({
+      where: { walletAddress: wallet, termsVersion: currentVersion },
+      order: { acknowledgedAt: "DESC" },
+    });
+    if (!ack) {
+      throw new ServiceError(
+        "ACKNOWLEDGEMENT_REQUIRED",
+        `Investor must acknowledge terms version ${currentVersion} before investing`,
+        403
+      );
+    }
+  }
 
   /**
    * Aggregates an investor's portfolio across all their investments.
@@ -366,6 +396,8 @@ export class InvestmentService {
   async investInInvoice(input: InvestInInvoiceInput): Promise<InvestInInvoiceResult> {
     const { invoiceId, investorId, walletAddress } = input;
 
+    await this.assertAccreditationAcknowledged(walletAddress);
+
     let amount: Decimal;
     try {
       amount = new Decimal(input.amount);
@@ -562,6 +594,8 @@ export class InvestmentService {
    */
   async createInvestment(input: CreateInvestmentInput): Promise<Investment> {
     const { invoiceId, investorId, investmentAmount, investorWallet } = input;
+
+    await this.assertAccreditationAcknowledged(investorWallet);
 
     // Validate investment amount
     const amount = new Decimal(investmentAmount);
