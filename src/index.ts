@@ -27,6 +27,9 @@ import { createOnchainProjections } from "./services/onchain-projections.service
 import { getSorobanConfig } from "./config/stellar";
 import { createRatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import { createDividendCycleService } from "./services/dividend-cycle.service";
+import { createOnboardingService } from "./services/onboarding.service";
+import { createSubscriptionStatusService } from "./services/subscription-status.service";
+import { createSorobanSubscriptionReader } from "./services/stellar/soroban-subscription-reader";
 import { createSecondaryMarketService } from "./services/secondary-market.service";
 import { createWatchlistService } from "./services/watchlist.service";
 import { createSettlementWorker } from "./workers/settlement.worker";
@@ -108,6 +111,21 @@ export async function bootstrap(): Promise<{ server: Server }> {
   // royalty earnings and holder dividend cycles.
   const projections = createOnchainProjections({ dataSource, logger });
 
+  // Issue #539 — gated-content access is answered by reading the holder's
+  // on-chain key balance, so the status service reads through Soroban rather
+  // than a projected table. Without a configured contract there is nothing to
+  // read, so the route stays unmounted rather than failing every request.
+  const subscriptionStatusService = sorobanConfig.subscriptionContractId
+    ? createSubscriptionStatusService({
+        holdingReader: createSorobanSubscriptionReader({
+          contractId: sorobanConfig.subscriptionContractId,
+          rpcUrl: sorobanConfig.rpcUrl,
+          logger,
+        }),
+        logger,
+      })
+    : undefined;
+
   // ---- Feature: Secondary Market ----
   const secondaryMarketService = createSecondaryMarketService(dataSource);
 
@@ -127,6 +145,14 @@ export async function bootstrap(): Promise<{ server: Server }> {
     kycService,
     ratingsLeaderboardService,
     dividendCycleService,
+    dividendDistributionService: projections.dividendDistributionService,
+    royaltyEarningsService: projections.royaltyEarningsService,
+    subscriptionStatusService,
+    onboardingService,
+    swapService: projections.swapService,
+    aclService: projections.aclService,
+    creatorKeyService: projections.creatorKeyService,
+    curveMigrationService: projections.curveMigrationService,
     secondaryMarketService,
     watchlistService,
     settlementWorker,

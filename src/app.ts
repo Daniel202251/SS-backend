@@ -28,6 +28,10 @@ import { createKeysRouter } from "./routes/keys.routes";
 import { createDividendsRouter } from "./routes/dividends.routes";
 import { createSecondaryMarketRouter } from "./routes/secondary-market.routes";
 import { createWatchlistRouter } from "./routes/watchlist.routes";
+import { createRoyaltiesRouter } from "./routes/royalties.routes";
+import { createSubscriptionsRouter } from "./routes/subscriptions.routes";
+import { createOnboardingRouter } from "./routes/onboarding.routes";
+import { createSwapRouter } from "./routes/swap.routes";
 import type { RatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import type { DividendCycleService } from "./services/dividend-cycle.service";
 import type { DividendDistributionService } from "./services/dividend-distribution.service";
@@ -38,7 +42,6 @@ import type { AtomicSwapService } from "./services/atomic-swap.service";
 import type { AclService } from "./services/acl.service";
 import type { CreatorKeyService } from "./services/creator-key.service";
 import type { CurveMigrationService } from "./services/curve-migration.service";
-import { createSwapRouter } from "./routes/swap.routes";
 
 import type { AuthService } from "./services/auth.service";
 import type { NotificationService } from "./services/notification.service";
@@ -127,6 +130,19 @@ export interface AppDependencies {
   kycService?: KycService;
   ratingsLeaderboardService?: RatingsLeaderboardService;
   dividendCycleService?: DividendCycleService;
+  /** Issue #538 — holder dividend distribution projections. */
+  dividendDistributionService?: DividendDistributionService;
+  /** Issue #537 — creator royalty earnings projections. */
+  royaltyEarningsService?: RoyaltyEarningsService;
+  /** Issue #539 — gated-content subscription status. */
+  subscriptionStatusService?: SubscriptionStatusService;
+  /** Issue #540 — onboarding tour completion. */
+  onboardingService?: OnboardingService;
+  /** Issue #145 — atomic swap history projections. */
+  swapService?: AtomicSwapService;
+  aclService?: AclService;
+  creatorKeyService?: CreatorKeyService;
+  curveMigrationService?: CurveMigrationService;
   secondaryMarketService?: SecondaryMarketService;
   watchlistService?: WatchlistService;
   settlementWorker?: SettlementWorker;
@@ -163,6 +179,11 @@ export function createApp({
   kycService,
   ratingsLeaderboardService,
   dividendCycleService,
+  dividendDistributionService,
+  royaltyEarningsService,
+  subscriptionStatusService,
+  onboardingService,
+  swapService,
   secondaryMarketService,
   watchlistService,
   settlementWorker,
