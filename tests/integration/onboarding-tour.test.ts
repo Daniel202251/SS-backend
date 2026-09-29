@@ -14,6 +14,7 @@ import { Transaction } from "../../src/models/Transaction.model";
 import { User } from "../../src/models/User.model";
 import { KycHistory } from "../../src/models/KycHistory.model";
 import { SecondaryListing } from "../../src/models/SecondaryListing.model";
+import { Watchlist } from "../../src/models/Watchlist.model";
 import { createAuthService } from "../../src/services/auth.service";
 import { createOnboardingService } from "../../src/services/onboarding.service";
 import { KYCStatus, UserType } from "../../src/types/enums";
@@ -54,6 +55,7 @@ describe("Integration: Onboarding tour completion (issue #540)", () => {
         OnboardingProgress,
         KycHistory,
         SecondaryListing,
+        Watchlist,
       ],
       synchronize: true,
       dropSchema: true,

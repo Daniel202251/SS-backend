@@ -29,6 +29,9 @@ import { AuthChallenge } from "../../src/models/AuthChallenge.model";
 import { Transaction } from "../../src/models/Transaction.model";
 import { KYCVerification } from "../../src/models/KYCVerification.model";
 import { Notification } from "../../src/models/Notification.model";
+import { KycHistory } from "../../src/models/KycHistory.model";
+import { SecondaryListing } from "../../src/models/SecondaryListing.model";
+import { Watchlist } from "../../src/models/Watchlist.model";
 
 describe("Integration: Invoice Token Holders Authorization", () => {
   let dataSource: DataSource;
@@ -42,7 +45,18 @@ describe("Integration: Invoice Token Holders Authorization", () => {
     dataSource = new DataSource({
       type: "sqlite",
       database: ":memory:",
-      entities: [User, Invoice, Investment, AuthChallenge, Transaction, KYCVerification, Notification],
+      entities: [
+        User,
+        Invoice,
+        Investment,
+        AuthChallenge,
+        Transaction,
+        KYCVerification,
+        Notification,
+        KycHistory,
+        SecondaryListing,
+        Watchlist,
+      ],
       synchronize: true,
       dropSchema: true,
     });
