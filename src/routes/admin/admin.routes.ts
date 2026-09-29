@@ -3,7 +3,7 @@ import { DataSource } from "typeorm";
 import { Request, Response, NextFunction } from "express";
 
 import { ipWhitelistMiddleware } from "@/middleware/ip-whitelist.middleware";
-import { createAuthMiddleware } from "@/middleware/auth.middleware";
+import { createAuthMiddleware, requireAdmin } from "@/middleware/auth.middleware";
 import { requireAdminRole } from "@/middleware/require-admin-role.middleware";
 import type { AuthService } from "@/services/auth.service";
 import type { AclService } from "@/services/acl.service";
@@ -11,6 +11,7 @@ import type { InvoiceService } from "@/services/invoice.service";
 import type { InvoiceExtensionService } from "@/services/invoice-extension.service";
 import type { AdminMetricsService, AdminMetricsQuery } from "@/services/admin-metrics.service";
 import type { AdminSettlementService } from "@/services/admin-settlement.service";
+import type { InvoiceEscrowContractService } from "@/services/stellar/invoice-escrow-contract.service";
 import { approveKYC } from "./approve-kyc";
 import { rejectKYC } from "./reject-kyc";
 import { revokeKYC } from "./revoke-kyc";
@@ -25,6 +26,8 @@ import { createAdminSettlementRouter } from "./settlement.routes";
 import { AppError } from "@/utils/http-error";
 import { logger } from "@/observability/logger";
 import type { AuthenticatedRequest } from "@/types/auth";
+import { listInvoices } from "./list-invoices";
+import { reviewInvoice } from "./review-invoice";
 
 export interface AdminRouterDependencies {
   dataSource: DataSource;
@@ -37,6 +40,8 @@ export interface AdminRouterDependencies {
   metricsService?: AdminMetricsService;
   /** Optional: enables POST /invoices/:invoiceId/settle for admin settlement. */
   adminSettlementService?: AdminSettlementService;
+  adminWallets?: string[];
+  invoiceEscrowContractService?: InvoiceEscrowContractService;
 }
 
 interface ExtensionReviewBody {
@@ -82,9 +87,11 @@ export function createAdminRouter({
   authService,
   aclService,
   invoiceService,
-extensionService: _extensionService,
+  extensionService: _extensionService,
   metricsService: _metricsService,
   adminSettlementService,
+  adminWallets = [],
+  invoiceEscrowContractService
 }: AdminRouterDependencies): Router {
   const router = Router();
 
@@ -132,6 +139,7 @@ extensionService: _extensionService,
   });
 
   if (invoiceService) {
+    // Legacy x-admin-key routes
     router.post("/invoices/:id/approve", (req, res) => {
       approveInvoice(req, res, invoiceService);
     });
@@ -139,6 +147,30 @@ extensionService: _extensionService,
     router.post("/invoices/:id/reject", (req, res) => {
       rejectInvoice(req, res, invoiceService);
     });
+
+    // New JWT-authenticated admin routes for invoices
+    if (authService) {
+      const authenticateJWT = createAuthMiddleware(authService);
+      const requireAdminJWT = requireAdmin(adminWallets);
+
+      router.get(
+        "/invoices",
+        authenticateJWT as any,
+        requireAdminJWT as any,
+        (req, res) => {
+          listInvoices(req, res, invoiceService);
+        }
+      );
+
+      router.patch(
+        "/invoices/:invoiceId",
+        authenticateJWT as any,
+        requireAdminJWT as any,
+        (req, res) => {
+          reviewInvoice(req, res, invoiceService, invoiceEscrowContractService);
+        }
+      );
+    }
   }
 
   // ---- Integration ACL projected from ACLUpdated events ----

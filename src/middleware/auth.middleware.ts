@@ -335,6 +335,23 @@ export function requireSeller() {
   };
 }
 
+export function requireAdmin(adminWallets: string[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
+      next(new HttpError(401, "Authentication required"));
+      return;
+    }
+
+    if (!adminWallets.includes(user.stellarAddress)) {
+      next(new AppError(403, "Admin privileges required", "ADMIN_REQUIRED"));
+      return;
+    }
+
+    next();
+  };
+}
+
 /** Requires an authenticated investor (or BOTH) account. */
 export function requireInvestor() {
   return (req: Request, _res: Response, next: NextFunction): void => {
