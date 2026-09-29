@@ -4,6 +4,7 @@ import { Decimal } from "decimal.js";
 import { InvestmentService } from "../../src/services/investment.service";
 import { Invoice } from "../../src/models/Invoice.model";
 import { Investment } from "../../src/models/Investment.model";
+import { InvestorAcknowledgement } from "../../src/models/InvestorAcknowledgement.model";
 import { InvoiceStatus, InvestmentStatus } from "../../src/types/enums";
 import { ServiceError } from "../../src/utils/service-error";
 
@@ -79,6 +80,12 @@ function createFakeDataSource(invoice: Invoice) {
 
   const dataSource = {
     transaction: async (callback: (manager: FakeManager) => Promise<unknown>) => callback(manager),
+    // Issue #473 â€” the accreditation gate looks the investor's terms
+    // acknowledgement up before creating the investment.
+    getRepository: (entity: unknown) =>
+      entity === InvestorAcknowledgement
+        ? { findOne: async () => ({ acknowledgedAt: new Date() }) }
+        : manager,
   } as unknown as DataSource;
 
   return { dataSource, invoices, investments };
