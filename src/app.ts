@@ -30,12 +30,25 @@ import { createSecondaryMarketRouter } from "./routes/secondary-market.routes";
 import { createWatchlistRouter } from "./routes/watchlist.routes";
 import type { RatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import type { DividendCycleService } from "./services/dividend-cycle.service";
+import type { DividendDistributionService } from "./services/dividend-distribution.service";
+import type { RoyaltyEarningsService } from "./services/royalty-earnings.service";
+import type { SubscriptionStatusService } from "./services/subscription-status.service";
+import type { OnboardingService } from "./services/onboarding.service";
+import type { AtomicSwapService } from "./services/atomic-swap.service";
+import type { AclService } from "./services/acl.service";
+import type { CreatorKeyService } from "./services/creator-key.service";
+import type { CurveMigrationService } from "./services/curve-migration.service";
+import { createSwapRouter } from "./routes/swap.routes";
+import { createRoyaltiesRouter } from "./routes/royalties.routes";
+import { createSubscriptionsRouter } from "./routes/subscriptions.routes";
+import { createOnboardingRouter } from "./routes/onboarding.routes";
 
 import type { AuthService } from "./services/auth.service";
 import type { NotificationService } from "./services/notification.service";
 import type { InvoiceService } from "./services/invoice.service";
 import type { InvestmentService } from "./services/investment.service";
 import type { SettlementService } from "./services/settlement.service";
+import type { AdminSettlementService } from "./services/admin-settlement.service";
 import type { MarketplaceService } from "./services/marketplace.service";
 import type { SellerService } from "./services/seller.service";
 import type { KycService } from "./services/kyc.service";
@@ -113,11 +126,20 @@ export interface AppDependencies {
   invoiceService?: InvoiceService;
   investmentService?: InvestmentService;
   settlementService?: SettlementService;
+  adminSettlementService?: AdminSettlementService;
   marketplaceService?: MarketplaceService;
   sellerService?: SellerService;
   kycService?: KycService;
   ratingsLeaderboardService?: RatingsLeaderboardService;
   dividendCycleService?: DividendCycleService;
+  dividendDistributionService?: DividendDistributionService;
+  royaltyEarningsService?: RoyaltyEarningsService;
+  subscriptionStatusService?: SubscriptionStatusService;
+  onboardingService?: OnboardingService;
+  swapService?: AtomicSwapService;
+  aclService?: AclService;
+  creatorKeyService?: CreatorKeyService;
+  curveMigrationService?: CurveMigrationService;
   secondaryMarketService?: SecondaryMarketService;
   watchlistService?: WatchlistService;
   settlementWorker?: SettlementWorker;
@@ -149,11 +171,20 @@ export function createApp({
   invoiceService,
   investmentService,
   settlementService,
+  adminSettlementService,
   marketplaceService,
   sellerService,
   kycService,
   ratingsLeaderboardService,
   dividendCycleService,
+  dividendDistributionService,
+  royaltyEarningsService,
+  subscriptionStatusService,
+  onboardingService,
+  swapService,
+  aclService,
+  creatorKeyService,
+  curveMigrationService,
   secondaryMarketService,
   watchlistService,
   settlementWorker,
@@ -359,22 +390,48 @@ export function createApp({
 
   // ---- Keys: Ratings Leaderboard ----
   if (ratingsLeaderboardService) {
-    app.use("/api/v1/keys", createKeysRouter({ ratingsLeaderboardService }));
+    app.use(
+      "/api/v1/keys",
+      createKeysRouter({
+        ratingsLeaderboardService,
+        authService,
+        creatorKeyService,
+        curveMigrationService,
+      })
+    );
   }
 
   // ---- Dividends: Cycle Config & Distribution ----
   if (dividendCycleService) {
-    app.use("/api/v1/dividends", createDividendsRouter({ dividendCycleService, authService }));
+    app.use(
+      "/api/v1/dividends",
+      createDividendsRouter({ dividendCycleService, authService, dividendDistributionService })
+    );
   }
 
-  if (creatorKeyService) {
-    const keysRouter = createKeysRouter({
-      creatorKeyService,
-      curveMigrationService,
-      authService,
-    });
-    app.use("/api/v1/keys", keysRouter);
-    app.use("/keys", keysRouter);
+  // ---- Royalties: creator earnings and claim history (issue #537) ----
+  if (royaltyEarningsService) {
+    app.use(
+      "/api/v1/royalties",
+      createRoyaltiesRouter({ royaltyEarningsService, authService })
+    );
+  }
+
+  // ---- Subscriptions: gated-content access check (issue #539) ----
+  // Public read: a content gate has to answer before the visitor is known.
+  if (subscriptionStatusService) {
+    app.use(
+      "/api/v1/subscriptions",
+      createSubscriptionsRouter({ subscriptionStatusService })
+    );
+  }
+
+  // ---- Onboarding: tour completion state (issue #540) ----
+  if (onboardingService) {
+    app.use(
+      "/api/v1/onboarding",
+      createOnboardingRouter({ onboardingService, authService })
+    );
   }
 
   if (swapService) {
@@ -383,15 +440,18 @@ export function createApp({
     app.use("/swaps", swapRouter);
   }
 
-  if (config?.admin?.ipWhitelist?.length || aclService) {
+  if (config?.admin?.ipWhitelist?.length) {
     app.use(
       "/api/v1/admin",
       createAdminRouter({
         dataSource,
         allowedCidrs: config.admin.ipWhitelist,
+        authService,
+        aclService,
         invoiceService,
         extensionService,
         metricsService: adminMetricsService,
+        adminSettlementService,
       })
     );
   }
