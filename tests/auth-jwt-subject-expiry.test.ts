@@ -89,6 +89,7 @@ class InMemoryUserRepository implements UserRepositoryContract {
       email: user.email ?? null,
       userType: user.userType ?? UserType.INVESTOR,
       kycStatus: user.kycStatus ?? KYCStatus.PENDING,
+      isKycVerified: user.isKycVerified ?? false,
       createdAt: user.createdAt ?? now,
       updatedAt: user.updatedAt ?? now,
       deletedAt: user.deletedAt ?? null,
@@ -97,6 +98,9 @@ class InMemoryUserRepository implements UserRepositoryContract {
       transactions: user.transactions ?? [],
       kycVerifications: user.kycVerifications ?? [],
       notifications: user.notifications ?? [],
+      kycHistory: user.kycHistory ?? [],
+      secondaryListings: user.secondaryListings ?? [],
+      watchlistEntries: user.watchlistEntries ?? [],
     };
 
     this.users.set(entity.id, entity);

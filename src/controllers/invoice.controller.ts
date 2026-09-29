@@ -44,6 +44,7 @@ export interface GetInvoicesRequest extends AuthenticatedRequest {
     page?: string;
     limit?: string;
     status?: string;
+    cursor?: string;
   };
 }
 
@@ -129,13 +130,61 @@ export function createInvoiceController(
           throw new HttpError(401, "Authentication required");
         }
 
-        const page = Number(req.query.page) || 1;
-        const limit = Number(req.query.limit) || 20;
-        const status = req.query.status;
+        const isCursorRequest = req.query.cursor !== undefined;
+        const isOffsetRequest = req.query.page !== undefined;
 
-        // Validate pagination
-        if (page < 1 || limit < 1 || limit > 100) {
-          throw new HttpError(400, "Invalid pagination parameters");
+        if (isCursorRequest && isOffsetRequest) {
+          throw new HttpError(400, "Cannot use both cursor and page parameters simultaneously");
+        }
+
+        const limit = Number(req.query.limit) || 20;
+        const rawStatus = req.query.status;
+        const status = rawStatus
+          ? (String(rawStatus).trim().toLowerCase() as InvoiceStatus)
+          : undefined;
+
+        // Validate limit
+        if (limit < 1 || limit > 100) {
+          throw new HttpError(400, "Invalid pagination parameters: limit must be between 1 and 100");
+        }
+
+        if (isCursorRequest) {
+          const cursor =
+            req.query.cursor === "" || req.query.cursor === "null" || req.query.cursor === "undefined"
+              ? null
+              : req.query.cursor;
+
+          const result = await invoiceService.getInvoicesBySellerId({
+            sellerId: req.user.id,
+            status: status as InvoiceStatus | undefined,
+            cursor,
+            limit,
+          });
+
+          res.status(200).json({
+            success: true,
+            data: result.invoices,
+            meta: {
+              total: result.total,
+              limit,
+              nextCursor: result.nextCursor ?? null,
+              hasNextPage: Boolean(result.nextCursor),
+            },
+            nextCursor: result.nextCursor ?? null,
+          });
+          return;
+        }
+
+        // Offset-based pagination (legacy / deprecated)
+        res.setHeader("Deprecation", "true");
+        res.setHeader(
+          "Warning",
+          '299 - "Offset-based pagination is deprecated. Use cursor-based pagination instead."'
+        );
+
+        const page = Number(req.query.page) || 1;
+        if (page < 1) {
+          throw new HttpError(400, "Invalid pagination parameters: page must be at least 1");
         }
 
         if (cacheService) {

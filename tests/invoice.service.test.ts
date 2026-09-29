@@ -627,4 +627,104 @@ describe("InvoiceService", () => {
       });
     });
   });
+
+  // ============ REPOSITORY ERROR HANDLING ============
+  describe("repository error handling", () => {
+    it("should propagate database errors on createInvoice", async () => {
+      mockInvoiceRepository.findOneBy.mockResolvedValue(null);
+      mockInvoiceRepository.create.mockReturnValue(mockInvoice);
+      mockInvoiceRepository.save.mockRejectedValue(new Error("Connection refused"));
+
+      await expect(invoiceService.createInvoice(buildCreateInput())).rejects.toThrow(
+        /Connection refused|Failed to create invoice/,
+      );
+    });
+
+    it("should propagate database errors on getInvoiceById", async () => {
+      mockInvoiceRepository.findOne.mockRejectedValue(new Error("Query timeout"));
+
+      await expect(invoiceService.getInvoiceById("invoice-123")).rejects.toThrow(
+        /Query timeout|Failed to fetch invoice/,
+      );
+    });
+
+    it("should propagate database errors on updateInvoice", async () => {
+      mockInvoiceRepository.findOne.mockResolvedValue(mockInvoice);
+      mockInvoiceRepository.save.mockRejectedValue(new Error("Deadlock detected"));
+
+      await expect(
+        invoiceService.updateInvoice({
+          sellerId: "seller-456",
+          invoiceId: "invoice-123",
+          customerName: "Updated",
+        }),
+      ).rejects.toThrow(/Deadlock detected|Processing failed/);
+    });
+
+    it("should propagate database errors on deleteInvoice", async () => {
+      mockInvoiceRepository.findOne.mockResolvedValue(mockInvoice);
+      mockInvoiceRepository.save.mockRejectedValue(new Error("Storage full"));
+
+      await expect(
+        invoiceService.deleteInvoice("invoice-123", "seller-456"),
+      ).rejects.toThrow(/Storage full|Processing failed/);
+    });
+  });
+
+  // ============ EDGE CASES ============
+  describe("edge cases", () => {
+    it("should handle zero discount rate correctly", async () => {
+      wireCreatePassthrough();
+
+      const result = await invoiceService.createInvoice(
+        buildCreateInput({ amount: "500.00", discountRate: "0.00" }),
+      );
+
+      expect(result.netAmount).toBe("500.0000");
+    });
+
+    it("should handle 100% discount rate (free invoice)", async () => {
+      wireCreatePassthrough();
+
+      const result = await invoiceService.createInvoice(
+        buildCreateInput({ amount: "100.00", discountRate: "100.00" }),
+      );
+
+      expect(result.netAmount).toBe("0.0000");
+    });
+
+    it("should handle very large amounts without precision loss", async () => {
+      wireCreatePassthrough();
+
+      const result = await invoiceService.createInvoice(
+        buildCreateInput({ amount: "99999999.99", discountRate: "10.00" }),
+      );
+
+      expect(result.netAmount).toBe("89999999.9910");
+    });
+
+    it("should reject invoice with empty invoice number", async () => {
+      await expect(
+        invoiceService.createInvoice(buildCreateInput({ invoiceNumber: "" })),
+      ).rejects.toThrow();
+    });
+
+    it("should reject invoice with empty customer name", async () => {
+      await expect(
+        invoiceService.createInvoice(buildCreateInput({ customerName: "" })),
+      ).rejects.toThrow();
+    });
+
+    it("should handle getInvoicesBySellerId with empty result", async () => {
+      mockInvoiceRepository.find.mockResolvedValue([]);
+      mockInvoiceRepository.count.mockResolvedValue(0);
+
+      const result = await invoiceService.getInvoicesBySellerId({
+        sellerId: "seller-no-invoices",
+      });
+
+      expect(result.invoices).toHaveLength(0);
+      expect(result.total).toBe(0);
+    });
+  });
 });

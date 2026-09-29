@@ -55,7 +55,7 @@ function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
     deletedAt: null,
     version: 1,
     ...overrides,
-  } as Invoice;
+  } as unknown as Invoice;
 }
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -70,7 +70,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
  * between their read and their write.
  */
 function createFakeDatabase(initial: Invoice, { interfere = false } = {}) {
-  const invoices = new Map<string, Invoice>([[initial.id, { ...initial }]]);
+  const invoices = new Map<string, Invoice>([[initial.id, { ...initial } as unknown as Invoice]]);
   const investments: Investment[] = [];
   const history: InvoiceStatusHistory[] = [];
   let transactions = 0;

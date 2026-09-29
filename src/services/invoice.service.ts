@@ -1,4 +1,4 @@
-import { DataSource, In } from "typeorm";
+import { DataSource, In, LessThan, IsNull, type SelectQueryBuilder, type FindOptionsWhere } from "typeorm";
 import Decimal from "decimal.js";
 import { Invoice } from "../models/Invoice.model";
 import { Investment } from "../models/Investment.model";
@@ -18,24 +18,22 @@ import { InvoiceStatusHistory } from "../models/InvoiceStatusHistory.model";
 import { logger } from "../observability/logger";
 import { AppError } from "../utils/http-error";
 import type { IPFSService, IPFSUploadResult } from "./ipfs.service";
+import { decodeInvoiceCursor, encodeInvoiceCursor } from "../utils/invoice-cursor.utils";
 
 export interface InvoiceRepositoryContract {
   findOne(options: { where: { id: string }; relations?: string[] }): Promise<Invoice | null>;
   findOneBy(options: { id?: string; invoiceNumber?: string }): Promise<Invoice | null>;
   find(options: {
-    where: {
-      sellerId?: string;
-      status?: InvoiceStatus;
-      id?: ReturnType<typeof In<string>>;
-    };
+    where: FindOptionsWhere<Invoice> | FindOptionsWhere<Invoice>[];
     skip?: number;
     take?: number;
     order?: { [key: string]: "ASC" | "DESC" };
     relations?: string[];
   }): Promise<Invoice[]>;
   save(invoice: Invoice): Promise<Invoice>;
-  count(options: { where: { sellerId: string; status?: InvoiceStatus } }): Promise<number>;
+  count(options: { where: FindOptionsWhere<Invoice> | FindOptionsWhere<Invoice>[] }): Promise<number>;
   create(data: Partial<Invoice>): Invoice;
+  createQueryBuilder?(alias?: string): SelectQueryBuilder<Invoice>;
 }
 
 // Kept exported from here for existing importers; defined alongside the
@@ -173,6 +171,8 @@ export interface GetInvoicesOptions {
   status?: InvoiceStatus;
   skip?: number;
   take?: number;
+  cursor?: string | null;
+  limit?: number;
 }
 
 export class InvoiceService {
@@ -347,6 +347,8 @@ export class InvoiceService {
   async getInvoicesBySellerId(options: GetInvoicesOptions): Promise<{
     invoices: InvoiceDTO[];
     total: number;
+    nextCursor: string | null;
+    hasMore?: boolean;
   }> {
     try {
       const sellerId = options.sellerId?.trim();
@@ -354,17 +356,110 @@ export class InvoiceService {
         throw new ServiceError("invalid_seller_id", "Seller id is required", 400);
       }
 
-      const where: { sellerId: string; status?: InvoiceStatus; deletedAt: null } = {
+      const where: FindOptionsWhere<Invoice> = {
         sellerId,
-        deletedAt: null,
+        deletedAt: IsNull(),
       };
 
-      if (options.status && Object.values(InvoiceStatus).includes(options.status)) {
-        where.status = options.status;
+      const normalizedStatus = options.status
+        ? (String(options.status).trim().toLowerCase() as InvoiceStatus)
+        : undefined;
+
+      if (normalizedStatus && Object.values(InvoiceStatus).includes(normalizedStatus)) {
+        where.status = normalizedStatus;
       }
 
+      // Keyset cursor pagination path
+      if (options.cursor !== undefined) {
+        const limit = Math.max(1, Math.min(options.limit ?? options.take ?? 20, 100));
+
+        let cursorCreatedAt: Date | undefined;
+        let cursorId: string | undefined;
+
+        if (options.cursor && options.cursor.trim()) {
+          const decoded = decodeInvoiceCursor(options.cursor);
+          if (decoded.id && !decoded.createdAt) {
+            const refInvoice = await this.invoiceRepository.findOne({
+              where: { id: decoded.id },
+            });
+            if (!refInvoice) {
+              throw new ServiceError("invalid_cursor", "Invoice referenced by cursor not found", 400);
+            }
+            cursorCreatedAt = refInvoice.createdAt;
+            cursorId = refInvoice.id;
+          } else {
+            cursorCreatedAt = decoded.createdAt;
+            cursorId = decoded.id;
+          }
+        }
+
+        let invoices: Invoice[];
+
+        if (typeof this.invoiceRepository.createQueryBuilder === "function") {
+          const qb = this.invoiceRepository.createQueryBuilder("invoice");
+          qb.where("invoice.sellerId = :sellerId", { sellerId })
+            .andWhere("invoice.deletedAt IS NULL");
+
+          if (normalizedStatus && Object.values(InvoiceStatus).includes(normalizedStatus)) {
+            qb.andWhere("invoice.status = :status", { status: normalizedStatus });
+          }
+
+          if (cursorCreatedAt && cursorId) {
+            qb.andWhere(
+              "(invoice.createdAt < :cursorCreatedAt OR (invoice.createdAt = :cursorCreatedAt AND invoice.id < :cursorId))",
+              { cursorCreatedAt, cursorId }
+            );
+          } else if (cursorCreatedAt) {
+            qb.andWhere("invoice.createdAt < :cursorCreatedAt", { cursorCreatedAt });
+          } else if (cursorId) {
+            qb.andWhere("invoice.id < :cursorId", { cursorId });
+          }
+
+          qb.orderBy("invoice.createdAt", "DESC")
+            .addOrderBy("invoice.id", "DESC")
+            .take(limit + 1);
+
+          invoices = await qb.getMany();
+        } else {
+          let findWhere: FindOptionsWhere<Invoice> | FindOptionsWhere<Invoice>[] = where;
+          if (cursorCreatedAt && cursorId) {
+            findWhere = [
+              { ...where, createdAt: LessThan(cursorCreatedAt) },
+              { ...where, createdAt: cursorCreatedAt, id: LessThan(cursorId) },
+            ];
+          } else if (cursorCreatedAt) {
+            findWhere = { ...where, createdAt: LessThan(cursorCreatedAt) };
+          } else if (cursorId) {
+            findWhere = { ...where, id: LessThan(cursorId) };
+          }
+
+          invoices = await this.invoiceRepository.find({
+            where: findWhere,
+            take: limit + 1,
+            order: { createdAt: "DESC", id: "DESC" },
+          });
+        }
+
+        const hasMore = invoices.length > limit;
+        const pageItems = hasMore ? invoices.slice(0, limit) : invoices;
+        const total = await this.invoiceRepository.count({ where });
+
+        let nextCursor: string | null = null;
+        if (hasMore && pageItems.length > 0) {
+          nextCursor = encodeInvoiceCursor(pageItems[pageItems.length - 1]);
+        }
+
+        return {
+          invoices: pageItems.map((inv) => this.toDTO(inv)),
+          total,
+          nextCursor,
+          hasMore,
+        };
+      }
+
+      // Legacy offset pagination path
       const skip = Math.max(0, Math.min(options.skip ?? 0, 10000));
-      const take = Math.max(1, Math.min(options.take ?? 20, 100));
+      const take = Math.max(1, Math.min(options.take ?? options.limit ?? 20, 100));
 
       const [invoices, total] = await Promise.all([
         this.invoiceRepository.find({
@@ -379,6 +474,8 @@ export class InvoiceService {
       return {
         invoices: invoices.map((inv) => this.toDTO(inv)),
         total,
+        nextCursor: null,
+        hasMore: skip + invoices.length < total,
       };
     } catch (error) {
       if (error instanceof ServiceError) throw error;
@@ -555,13 +652,20 @@ export class InvoiceService {
       throw new ServiceError("invoice_already_rejected", "Invoice has already been rejected", 409);
     }
 
-    const updated = await this.applyTransition(invoice, InvoiceStatus.REJECTED, {
-      actor: { role: "admin", id: input.actorId ?? null },
-      trigger: "admin_rejected",
-      context: { reason: rejectionReason },
-    });
+    try {
+      const updated = await this.applyTransition(invoice, InvoiceStatus.REJECTED, {
+        actor: { role: "admin", id: input.actorId ?? null },
+        trigger: "admin_rejected",
+        context: { reason: rejectionReason },
+      });
 
-    return this.toDTO(updated);
+      return this.toDTO(updated);
+    } catch (err) {
+      if (err instanceof ServiceError && err.code === "invalid_status_transition") {
+        throw new ServiceError(err.code, err.message, 409, err.details);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -903,7 +1007,7 @@ export class InvoiceService {
       return {
         wallet: truncatedWallet,
         amount: investment.investmentAmount,
-        share_percent: percentage.toString(),
+        share_percent: percentage.toFixed(2),
         committed_at: investment.createdAt,
       };
     });

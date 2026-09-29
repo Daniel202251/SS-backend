@@ -272,10 +272,6 @@ describe("Wallet-based rate limiting", () => {
 
     // 4th request should be rate limited
     await request(shortApp).post("/test").set("Authorization", `Bearer ${token}`).expect(429);
-        const limiter = createWalletRateLimiter(
-            { windowMs: 400, maxRequests: 3 },
-            "reset-test",
-        );
 
     // Wait for window to expire
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -296,8 +292,6 @@ describe("Wallet-based rate limiting", () => {
     shortApp.use(express.json());
 
     const limiter = createWalletRateLimiter({ windowMs: 150, maxRequests: 2 }, "per-wallet-test");
-        // Wait for window to expire
-        await new Promise((resolve) => setTimeout(resolve, 500));
 
     shortApp.post(
       "/test",
@@ -344,54 +338,4 @@ describe("Wallet-based rate limiting", () => {
     await request(shortApp).post("/test").set("Authorization", `Bearer ${tokenA}`).expect(200);
     await request(shortApp).post("/test").set("Authorization", `Bearer ${tokenB}`).expect(200);
   });
-});
-
-        // 4th request after reset should be rate limited again
-        await request(shortApp).post("/test").set("Authorization", `Bearer ${token}`).expect(429);
-    });
-
-    it("should reset per wallet, not globally", async () => {
-        resetRateLimitStores();
-
-        const shortApp = express();
-        shortApp.use(express.json());
-
-        const limiter = createWalletRateLimiter(
-            { windowMs: 400, maxRequests: 2 },
-            "per-wallet-test",
-        );
-
-        shortApp.post("/test", (req, res, next) => {
-            const authHeader = req.headers.authorization;
-            if (!authHeader?.startsWith("Bearer ")) { res.status(401).json({ error: "Unauthorized" }); return; }
-            const token = authHeader.slice(7);
-            try {
-                const payload = jwt.verify(token, TEST_SECRET) as any;
-                (req as any).user = { id: payload.sub, stellarAddress: payload.stellarAddress };
-                next();
-            } catch { res.status(401).json({ error: "Invalid token" }); }
-        }, limiter, (_req, res) => { res.status(200).json({ success: true }); });
-
-        shortApp.use(createErrorMiddleware(logger));
-
-        const tokenA = createToken(WALLET_A);
-        const tokenB = createToken(WALLET_B);
-
-        // Exhaust wallet A
-        await request(shortApp).post("/test").set("Authorization", `Bearer ${tokenA}`).expect(200);
-        await request(shortApp).post("/test").set("Authorization", `Bearer ${tokenA}`).expect(200);
-        await request(shortApp).post("/test").set("Authorization", `Bearer ${tokenA}`).expect(429);
-
-        // Wallet B should still have full quota
-        await request(shortApp).post("/test").set("Authorization", `Bearer ${tokenB}`).expect(200);
-        await request(shortApp).post("/test").set("Authorization", `Bearer ${tokenB}`).expect(200);
-        await request(shortApp).post("/test").set("Authorization", `Bearer ${tokenB}`).expect(429);
-
-        // Wait for window to expire
-        await new Promise((resolve) => setTimeout(resolve, 500));
-
-        // Both wallets should have fresh quotas
-        await request(shortApp).post("/test").set("Authorization", `Bearer ${tokenA}`).expect(200);
-        await request(shortApp).post("/test").set("Authorization", `Bearer ${tokenB}`).expect(200);
-    });
 });

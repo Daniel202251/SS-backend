@@ -14,7 +14,8 @@ function createFakeInvoiceService() {
   const fakeInvoiceRepository: InvoiceServiceDependencies["invoiceRepository"] = {
     findOne: async () => null,
     findOneBy: async () => null,
-    find: async ({ where: { sellerId, status } }) => {
+    find: async ({ where }: any) => {
+      const { sellerId, status } = (Array.isArray(where) ? where[0] : where) || {};
       return [...invoices.values()].filter((inv) => {
         if (inv.sellerId !== sellerId) return false;
         if (status && inv.status !== status) return false;
@@ -25,7 +26,8 @@ function createFakeInvoiceService() {
       invoices.set(invoice.id, invoice);
       return invoice;
     },
-    count: async ({ where: { sellerId, status } }) => {
+    count: async ({ where }: any) => {
+      const { sellerId, status } = (Array.isArray(where) ? where[0] : where) || {};
       return [...invoices.values()].filter((inv) => {
         if (inv.sellerId !== sellerId) return false;
         if (status && inv.status !== status) return false;

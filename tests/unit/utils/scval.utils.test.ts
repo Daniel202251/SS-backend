@@ -1,5 +1,10 @@
 import { scValToNative } from "stellar-sdk";
-import { scValI128, scValU64, scValSymbol, scValAddress } from "../../../../src/services/stellar/utils/scval.utils";
+import { scValI128, scValU64, scValSymbol, scValAddress } from "../../../src/services/stellar/utils/scval.utils";
+
+// Polyfill BigInt.prototype.toJSON so Jest IPC message serialization does not throw
+(BigInt.prototype as any).toJSON = function () {
+  return this.toString();
+};
 
 describe("scValI128", () => {
   it("should encode zero correctly", () => {
@@ -13,7 +18,7 @@ describe("scValI128", () => {
   });
 
   it("should encode a large i128 stroop value", () => {
-    const large = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
+    const large = BigInt("170141183460469231731687303715884105727");
     const val = scValI128(large);
     expect(scValToNative(val)).toBe(large);
   });
@@ -41,7 +46,7 @@ describe("scValU64", () => {
   });
 
   it("should encode max u64", () => {
-    const maxU64 = 18446744073709551615;
+    const maxU64 = 18446744073709551615n;
     const val = scValU64(maxU64);
     expect(scValToNative(val)).toBe(18446744073709551615n);
   });

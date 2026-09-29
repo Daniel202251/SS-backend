@@ -55,7 +55,7 @@ function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
     deletedAt: null,
     version: 1,
     ...overrides,
-  } as Invoice;
+  } as unknown as Invoice;
 }
 
 /** In-memory store recording what the machine persisted. */
@@ -64,12 +64,12 @@ function createStore() {
   const history: Array<Omit<InvoiceStatusHistory, "id" | "createdAt">> = [];
   const store: InvoiceTransitionStore = {
     saveInvoice: async (invoice) => {
-      savedInvoices.push({ ...invoice });
+      savedInvoices.push({ ...invoice } as unknown as Invoice);
       return invoice;
     },
     recordHistory: async (entry) => {
       history.push(entry);
-      return { id: crypto.randomUUID(), createdAt: new Date(), ...entry } as InvoiceStatusHistory;
+      return { id: crypto.randomUUID(), createdAt: new Date(), ...entry } as unknown as InvoiceStatusHistory;
     },
   };
   return { store, savedInvoices, history };
