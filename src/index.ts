@@ -8,14 +8,22 @@ import { logger } from "./observability/logger";
 import { MetricsRegistry } from "./observability/metrics";
 
 import { createAuthService } from "./services/auth.service";
-import { createNotificationService } from "./services/notification.service";
-import { InvoiceService } from "./services/invoice.service";
-import { createInvoiceStateMachine } from "./lib/invoice-state-machine";
 import {
-  createInvestmentNotifier,
-  createInvestorDirectory,
-  createInvestorNotificationEffect,
-} from "./lib/invoice-notifications";
+  createDedupedNotificationStore,
+  createNotificationService,
+} from "./services/notification.service";
+import { InvoiceService } from "./services/invoice.service";
+import {
+  createInvoiceStateMachine,
+  createSellerNotificationEffect,
+} from "./lib/invoice-state-machine";
+import {
+  createNotificationDispatchEffect,
+  InMemoryDeadLetterSink,
+  NotificationDispatcher,
+  unlessDispatched,
+} from "./lib/notification-dispatcher";
+import { createInvestmentNotifier, createInvestorDirectory } from "./lib/invoice-notifications";
 import { Invoice } from "./models/Invoice.model";
 import { createIPFSService } from "./services/ipfs.service";
 import { createInvestmentService } from "./services/investment.service";
@@ -48,10 +56,18 @@ export async function bootstrap(): Promise<{ server: Server }> {
   const ipfsService = createIPFSService(config.ipfs, logger);
   // One state machine shared by every service that changes invoice status,
   // so transitions are validated, recorded and notified the same way.
+  // Funded, settled, rejected and approved events fan out through the queued
+  // dispatcher; the seller effect still covers every other status change.
+  const notificationDispatcher = new NotificationDispatcher({
+    store: createDedupedNotificationStore(dataSource),
+    investors: createInvestorDirectory(dataSource),
+    deadLetters: new InMemoryDeadLetterSink(),
+    logger,
+  });
   const invoiceStateMachine = createInvoiceStateMachine({
-    notificationSink: notificationService,
     effects: [
-      createInvestorNotificationEffect(notificationService, createInvestorDirectory(dataSource)),
+      unlessDispatched(createSellerNotificationEffect(notificationService)),
+      createNotificationDispatchEffect(notificationDispatcher),
     ],
   });
   const invoiceService = new InvoiceService({
