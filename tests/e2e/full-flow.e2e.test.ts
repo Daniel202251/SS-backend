@@ -232,6 +232,12 @@ async function setUserKYCStatus(
 // timeout failure that looks like a product regression.
 jest.setTimeout(30_000);
 
+const originalEnvironment = {
+  JWT_SECRET: process.env.JWT_SECRET,
+  ADMIN_API_KEY: process.env.ADMIN_API_KEY,
+  SKIP_KYC_VERIFICATION: process.env.SKIP_KYC_VERIFICATION,
+};
+
 describe("E2E: Complete Invoice Financing Flow", () => {
   let dataSource: DataSource;
   let app: ReturnType<typeof createApp>;
@@ -379,8 +385,18 @@ describe("E2E: Complete Invoice Financing Flow", () => {
   });
 
   afterAll(async () => {
-    if (dataSource?.isInitialized) {
-      await dataSource.destroy();
+    try {
+      if (dataSource?.isInitialized) {
+        await dataSource.destroy();
+      }
+    } finally {
+      for (const [name, value] of Object.entries(originalEnvironment)) {
+        if (value === undefined) {
+          delete process.env[name];
+        } else {
+          process.env[name] = value;
+        }
+      }
     }
   });
 
