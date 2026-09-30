@@ -13,7 +13,6 @@ import {
   buildAuthFailureDetails,
   classifyJwtError,
 } from "../lib/auth-failure";
-import { logger } from "../observability/logger";
 
 interface AuthTokenPayload {
   sub: string;
