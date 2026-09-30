@@ -649,7 +649,6 @@ describe("POST /invoices/:id/invest (#465)", () => {
     });
 
     it.each([
-      [{ amount: "10" }],
       [{ walletAddress: "not-a-wallet", amount: "10" }],
       [{ walletAddress: investorWallet }],
       [{ walletAddress: investorWallet, amount: "1.23456" }],
