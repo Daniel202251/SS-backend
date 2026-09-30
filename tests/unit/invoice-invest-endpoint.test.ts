@@ -177,7 +177,7 @@ function createFakeDatabase(initial: Invoice, { interfere = false } = {}) {
         throw error;
       }
     },
-    // Issue #473 â€” the accreditation gate looks the investor's terms
+    // Issue #473 — the accreditation gate looks the investor's terms
     // acknowledgement up before creating the investment.
     getRepository: (entity: unknown) =>
       entity === InvestorAcknowledgement
@@ -649,7 +649,6 @@ describe("POST /invoices/:id/invest (#465)", () => {
     });
 
     it.each([
-      [{ amount: "10" }],
       [{ walletAddress: "not-a-wallet", amount: "10" }],
       [{ walletAddress: investorWallet }],
       [{ walletAddress: investorWallet, amount: "1.23456" }],

@@ -238,7 +238,7 @@ describe("notification service (#467)", () => {
             if (failCommit) throw new Error("commit failed");
             return result;
           },
-          // Issue #473 â€” the accreditation gate looks the investor's terms
+          // Issue #473 — the accreditation gate looks the investor's terms
           // acknowledgement up before creating the investment.
           getRepository: (entity: unknown) =>
             entity === InvestorAcknowledgement

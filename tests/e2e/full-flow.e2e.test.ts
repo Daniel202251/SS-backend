@@ -46,6 +46,8 @@ import { Watchlist } from "../../src/models/Watchlist.model";
 import { InvoiceStatusHistory } from "../../src/models/InvoiceStatusHistory.model";
 import { InvestorReturn } from "../../src/models/InvestorReturn.model";
 import { SettlementRemainder } from "../../src/models/SettlementRemainder.model";
+import { InvestorAcknowledgement } from "../../src/models/InvestorAcknowledgement.model";
+import { getCurrentTermsVersion } from "../../src/services/investor-acknowledgement.service";
 import { InvoiceStatus, InvestmentStatus, KYCStatus } from "../../src/types/enums";
 import type { AppConfig } from "../../src/config/env";
 import { logger } from "../../src/observability/logger";
@@ -339,9 +341,10 @@ describe("E2E: Complete Invoice Financing Flow", () => {
           SecondaryListing,
           Watchlist,
           InvoiceStatusHistory,
-          InvestorReturn,
-          SettlementRemainder,
-        ],
+            InvestorReturn,
+            SettlementRemainder,
+            InvestorAcknowledgement,
+          ],
       });
 
       await dataSource.initialize();
@@ -410,6 +413,16 @@ describe("E2E: Complete Invoice Financing Flow", () => {
       // In production this is done via admin KYC approval.
       // For E2E, we update the database directly.
       await setUserKYCStatus(dataSource, investorId, KYCStatus.APPROVED);
+    });
+
+    it("should record the investor's terms acknowledgement (issue #473)", async () => {
+      // InvestmentService refuses to invest until the wallet has acknowledged
+      // the current terms version.
+      await dataSource.getRepository(InvestorAcknowledgement).save({
+        walletAddress: investorKeypair.publicKey(),
+        userId: investorId,
+        termsVersion: getCurrentTermsVersion(),
+      });
     });
 
     it("should set KYC status to APPROVED for seller (required for publishing invoices)", async () => {
