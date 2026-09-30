@@ -4,6 +4,7 @@ import { Request, Response, NextFunction } from "express";
 
 import { ipWhitelistMiddleware } from "@/middleware/ip-whitelist.middleware";
 import { createAuthMiddleware, requireAdmin } from "@/middleware/auth.middleware";
+import { User } from "@/models/User.model";
 import { requireAdminRole } from "@/middleware/require-admin-role.middleware";
 import type { AuthService } from "@/services/auth.service";
 import type { AclService } from "@/services/acl.service";
@@ -167,7 +168,10 @@ export function createAdminRouter({
         authenticateJWT,
         requireAdminJWT,
         (req, res) => {
-          reviewInvoice(req, res, invoiceService, invoiceEscrowContractService);
+          reviewInvoice(req, res, invoiceService, invoiceEscrowContractService, async (sellerId) => {
+            const seller = await dataSource.getRepository(User).findOne({ where: { id: sellerId } });
+            return seller?.stellarAddress ?? "UNKNOWN";
+          });
         }
       );
     }
