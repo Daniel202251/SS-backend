@@ -23,6 +23,9 @@ import { Notification } from "../../src/models/Notification.model";
 import { InvestorPayout } from "../../src/models/InvestorPayout.model";
 import { InvoiceStatus, InvestmentStatus, KYCStatus, UserType, NotificationType } from "../../src/types/enums";
 import { InvestorPayoutStatus } from "../../src/models/InvestorPayout.model";
+import { KycHistory } from "../../src/models/KycHistory.model";
+import { SecondaryListing } from "../../src/models/SecondaryListing.model";
+import { Watchlist } from "../../src/models/Watchlist.model";
 import type { AppConfig } from "../../src/config/env";
 import { logger } from "../../src/observability/logger";
 import { InvoiceEscrowContractService } from "../../src/services/stellar/invoice-escrow-contract.service";
@@ -139,7 +142,19 @@ describe("Admin Settlement Endpoint Integration", () => {
       type: "sqlite",
       database: ":memory:",
       dropSchema: true,
-      entities: [User, Investment, Invoice, AuthChallenge, Transaction, KYCVerification, Notification, InvestorPayout],
+      entities: [
+        User,
+        Investment,
+        Invoice,
+        AuthChallenge,
+        Transaction,
+        KYCVerification,
+        Notification,
+        InvestorPayout,
+        KycHistory,
+        SecondaryListing,
+        Watchlist,
+      ],
       synchronize: true,
       logging: false,
     });
