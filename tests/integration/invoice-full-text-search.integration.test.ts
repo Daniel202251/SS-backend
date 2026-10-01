@@ -6,6 +6,9 @@ import { Transaction } from "../../src/models/Transaction.model";
 import { KYCVerification } from "../../src/models/KYCVerification.model";
 import { Notification } from "../../src/models/Notification.model";
 import { AuthChallenge } from "../../src/models/AuthChallenge.model";
+import { KycHistory } from "../../src/models/KycHistory.model";
+import { SecondaryListing } from "../../src/models/SecondaryListing.model";
+import { Watchlist } from "../../src/models/Watchlist.model";
 import {
   InvoiceSearchService,
   type InvoiceSearchHit,
@@ -44,7 +47,18 @@ describeIfDb("Invoice full-text search (Postgres)", () => {
       type: "postgres",
       url: databaseUrl,
       extra: { options: `-c search_path=${TEST_SCHEMA},public` },
-      entities: [User, Invoice, Investment, Transaction, KYCVerification, Notification, AuthChallenge],
+      entities: [
+        User,
+        Invoice,
+        Investment,
+        Transaction,
+        KYCVerification,
+        Notification,
+        AuthChallenge,
+        KycHistory,
+        SecondaryListing,
+        Watchlist,
+      ],
       synchronize: true,
       logging: false,
     });
