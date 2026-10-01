@@ -21,6 +21,7 @@ import {
 import { createInvoiceController } from "../../src/controllers/invoice.controller";
 import { createErrorMiddleware } from "../../src/middleware/error.middleware";
 import { Investment } from "../../src/models/Investment.model";
+import { InvestorAcknowledgement } from "../../src/models/InvestorAcknowledgement.model";
 import { Invoice } from "../../src/models/Invoice.model";
 import { InvoiceStatusHistory } from "../../src/models/InvoiceStatusHistory.model";
 import type { AppLogger } from "../../src/observability/logger";
@@ -136,7 +137,7 @@ const INVALID_EDGES = ALL_STATUSES.flatMap((from) =>
 
 describe("invoice status state machine (#468)", () => {
   describe("transition graph", () => {
-    it("follows submitted → under review → active → funded → settled", () => {
+    it("follows submitted â†’ under review â†’ active â†’ funded â†’ settled", () => {
       expect(allowedTransitionsFrom(InvoiceStatus.DRAFT)).toContain(InvoiceStatus.PENDING);
       expect(allowedTransitionsFrom(InvoiceStatus.PENDING)).toContain(InvoiceStatus.PUBLISHED);
       expect(allowedTransitionsFrom(InvoiceStatus.PUBLISHED)).toContain(InvoiceStatus.FUNDED);
@@ -161,7 +162,7 @@ describe("invoice status state machine (#468)", () => {
   });
 
   describe("valid paths", () => {
-    it.each(VALID_EDGES)("applies %s → %s and records it in history", async (from, to) => {
+    it.each(VALID_EDGES)("applies %s â†’ %s and records it in history", async (from, to) => {
       const invoice = makeInvoice({ status: from });
       const { store, savedInvoices, history } = createStore();
       const { actor, context } = validInputs(from, to);
@@ -205,7 +206,7 @@ describe("invoice status state machine (#468)", () => {
   });
 
   describe("invalid paths", () => {
-    it.each(INVALID_EDGES)("rejects %s → %s with a descriptive 422", (from, to) => {
+    it.each(INVALID_EDGES)("rejects %s â†’ %s with a descriptive 422", (from, to) => {
       const invoice = makeInvoice({ status: from });
       const error = captureError(() =>
         assertTransition(invoice, to, { role: "admin", id: "admin-1" })
@@ -281,7 +282,7 @@ describe("invoice status state machine (#468)", () => {
       expect(cases.length).toBeGreaterThan(10);
     });
 
-    it.each(cases)("forbids %s → %s for role %s", (from, to, role) => {
+    it.each(cases)("forbids %s â†’ %s for role %s", (from, to, role) => {
       const error = captureError(() =>
         assertTransition(
           makeInvoice({ status: from }),
@@ -531,6 +532,12 @@ describe("invoice status state machine (#468)", () => {
           }
           return result;
         },
+        // Issue #473 â€” the accreditation gate looks the investor's terms
+        // acknowledgement up before creating the investment.
+        getRepository: (entity: unknown) =>
+          entity === InvestorAcknowledgement
+            ? { findOne: async () => ({ acknowledgedAt: new Date() }) }
+            : manager,
       } as unknown as DataSource;
       return {
         dataSource,

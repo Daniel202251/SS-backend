@@ -610,16 +610,23 @@ export function createInvoiceController(
           data: result,
         });
       } catch (error) {
-        if (error instanceof ServiceError) {
-          next(new HttpError(error.statusCode, error.message));
-          return;
+          if (error instanceof ServiceError) {
+            next(
+              new PublicAppError(
+                error.statusCode,
+                error.message,
+                error.code.toUpperCase(),
+                error.details
+              )
+            );
+            return;
+          }
+
+          next(error);
         }
+      },
 
-        next(error);
-      }
-    },
-
-    async getInvoiceEscrowStatus(
+      async getInvoiceEscrowStatus(
       req: Request & { params: { id: string } },
       res: Response,
       next: NextFunction

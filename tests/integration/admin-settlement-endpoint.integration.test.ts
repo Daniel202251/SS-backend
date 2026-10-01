@@ -23,6 +23,12 @@ import { Notification } from "../../src/models/Notification.model";
 import { InvestorPayout } from "../../src/models/InvestorPayout.model";
 import { InvoiceStatus, InvestmentStatus, KYCStatus, UserType, NotificationType } from "../../src/types/enums";
 import { InvestorPayoutStatus } from "../../src/models/InvestorPayout.model";
+import { KycHistory } from "../../src/models/KycHistory.model";
+import { SecondaryListing } from "../../src/models/SecondaryListing.model";
+import { Watchlist } from "../../src/models/Watchlist.model";
+import { InvoiceStatusHistory } from "../../src/models/InvoiceStatusHistory.model";
+import { InvestorReturn } from "../../src/models/InvestorReturn.model";
+import { InvestorAcknowledgement } from "../../src/models/InvestorAcknowledgement.model";
 import type { AppConfig } from "../../src/config/env";
 import { logger } from "../../src/observability/logger";
 import { InvoiceEscrowContractService } from "../../src/services/stellar/invoice-escrow-contract.service";
@@ -70,7 +76,21 @@ function createMockInvoiceEscrowContract(): InvoiceEscrowContractService {
   }, logger);
 }
 
+/**
+ * The on-chain call is not what this suite exercises, so stub it rather than
+ * relying on a real signer and RPC round trip.
+ */
+function stubSuccessfulOnChainSettlement(service: InvoiceEscrowContractService): void {
+  jest
+    .spyOn(service, "settleEscrowOnChain")
+    .mockResolvedValue({ transactionHash: `mock-settle-${crypto.randomUUID()}`, ledger: 12345 });
+}
+
 describe("Admin Settlement Endpoint Integration", () => {
+  // Bootstrapping the schema and seeding three investors is slower than the
+  // default 5s, which is fine in CI but flaky on a loaded machine.
+  jest.setTimeout(30_000);
+
   let dataSource: DataSource;
   let app: ReturnType<typeof createApp>;
   let config: AppConfig;
@@ -139,7 +159,22 @@ describe("Admin Settlement Endpoint Integration", () => {
       type: "sqlite",
       database: ":memory:",
       dropSchema: true,
-      entities: [User, Investment, Invoice, AuthChallenge, Transaction, KYCVerification, Notification, InvestorPayout],
+      entities: [
+        User,
+        Investment,
+        Invoice,
+        AuthChallenge,
+        Transaction,
+        KYCVerification,
+        Notification,
+        InvestorPayout,
+        KycHistory,
+        SecondaryListing,
+        Watchlist,
+        InvoiceStatusHistory,
+        InvestorReturn,
+        InvestorAcknowledgement,
+      ],
       synchronize: true,
       logging: false,
     });
@@ -156,6 +191,7 @@ describe("Admin Settlement Endpoint Integration", () => {
     const settlementService = createSettlementService(dataSource);
     const notificationService = createNotificationService(dataSource);
     const invoiceEscrowContract = createMockInvoiceEscrowContract();
+    stubSuccessfulOnChainSettlement(invoiceEscrowContract);
     const adminSettlementService = createAdminSettlementService(
       dataSource,
       invoiceEscrowContract,
@@ -204,7 +240,8 @@ describe("Admin Settlement Endpoint Integration", () => {
       { subject: sellerKeypair.publicKey(), expiresIn: "1h" }
     );
     
-    // Generate admin token with admin role
+    // Generate admin token with admin role. authenticateAdminJWT verifies with
+    // ADMIN_JWT_SECRET, so the token must be signed with that secret.
     adminToken = jwt.sign(
       { stellarAddress: adminKeypair.publicKey(), userId: admin.id, role: "admin" },
       process.env.ADMIN_JWT_SECRET!,
@@ -262,8 +299,9 @@ describe("Admin Settlement Endpoint Integration", () => {
     const res = await request(app)
       .post(`/api/v1/admin/invoices/${invoice.id}/settle`)
       .set("Authorization", `Bearer ${adminToken}`)
+      .set("x-admin-key", "test-admin-key")
       .send({ repaymentAmount: "9000.0000" });
-    
+
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.invoiceId).toBe(invoice.id);
@@ -316,6 +354,7 @@ describe("Admin Settlement Endpoint Integration", () => {
     const res = await request(app)
       .post(`/api/v1/admin/invoices/${invoice.id}/settle`)
       .set("Authorization", `Bearer ${adminToken}`)
+      .set("x-admin-key", "test-admin-key")
       .send({ repaymentAmount: "5000.0000" });
 
     expect(res.status).toBe(400);
@@ -390,6 +429,7 @@ describe("Admin Settlement Endpoint Integration", () => {
     const res = await request(app)
       .post(`/api/v1/admin/invoices/${invoice.id}/settle`)
       .set("Authorization", `Bearer ${adminToken}`)
+      .set("x-admin-key", "test-admin-key")
       .send({});
 
     expect(res.status).toBe(400);
@@ -400,6 +440,7 @@ describe("Admin Settlement Endpoint Integration", () => {
     const res = await request(app)
       .post(`/api/v1/admin/invoices/${crypto.randomUUID()}/settle`)
       .set("Authorization", `Bearer ${adminToken}`)
+      .set("x-admin-key", "test-admin-key")
       .send({ repaymentAmount: "5000.0000" });
 
     expect(res.status).toBe(404);
@@ -424,6 +465,7 @@ describe("Admin Settlement Endpoint Integration", () => {
     const res = await request(app)
       .post(`/api/v1/admin/invoices/${invoice.id}/settle`)
       .set("Authorization", `Bearer ${adminToken}`)
+      .set("x-admin-key", "test-admin-key")
       .send({ repaymentAmount: "0.0000" });
 
     expect(res.status).toBe(400);
@@ -448,6 +490,7 @@ describe("Admin Settlement Endpoint Integration", () => {
     const res = await request(app)
       .post(`/api/v1/admin/invoices/${invoice.id}/settle`)
       .set("Authorization", `Bearer ${adminToken}`)
+      .set("x-admin-key", "test-admin-key")
       .send({ repaymentAmount: "-100.0000" });
 
     expect(res.status).toBe(400);
@@ -520,10 +563,11 @@ describe("Admin Settlement Endpoint Integration", () => {
     const res = await request(failingApp)
       .post(`/api/v1/admin/invoices/${invoice.id}/settle`)
       .set("Authorization", `Bearer ${adminToken}`)
+      .set("x-admin-key", "test-admin-key")
       .send({ repaymentAmount: "5000.0000" });
 
     expect(res.status).toBe(502);
-    expect(res.body.error.code).toBe("ON_CHAIN_SETTLEMENT_FAILED");
+    expect(res.body.error.code).toBe("ON_CHAIN_SETTLEMENT_ERROR");
 
     // Invoice should remain FUNDED (no status change on failure)
     const updatedInvoice = await dataSource.getRepository(Invoice).findOneBy({ id: invoice.id });

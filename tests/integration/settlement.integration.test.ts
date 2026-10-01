@@ -4,6 +4,7 @@ import { InvestmentService } from "../../src/services/investment.service";
 import { SettlementService } from "../../src/services/settlement.service";
 import { Invoice } from "../../src/models/Invoice.model";
 import { Investment } from "../../src/models/Investment.model";
+import { InvestorAcknowledgement } from "../../src/models/InvestorAcknowledgement.model";
 import { InvoiceStatus, InvestmentStatus } from "../../src/types/enums";
 import { logger } from "../../src/observability/logger";
 import { ServiceError } from "../../src/utils/service-error";
@@ -81,6 +82,12 @@ function createFakeDataSource(invoice: Invoice) {
 
   const dataSource = {
     transaction: async (callback: (manager: FakeManager) => Promise<unknown>) => callback(manager),
+    // Issue #473 — the accreditation gate looks the investor's terms
+    // acknowledgement up before creating the investment.
+    getRepository: (entity: unknown) =>
+      entity === InvestorAcknowledgement
+        ? { findOne: async () => ({ acknowledgedAt: new Date() }) }
+        : manager,
   } as unknown as DataSource;
 
   return { dataSource, invoices, investments };
@@ -586,23 +593,30 @@ describe("Settlement integration: edge cases and input validation", () => {
     ).rejects.toThrow(/Invoice has no confirmed investments to settle/);
   });
 
+  // These four cases previously drove the assertion through a
+  // try/await/fail("...")/catch block. jest-circus (Jest's default test
+  // runner since v27, and the only runner installed here — jest-jasmine2
+  // is absent from node_modules) does not implement the global fail()
+  // helper at runtime, even though @types/jest still declares its type for
+  // backward compatibility. Had settleInvoice ever regressed to resolve
+  // instead of reject here, that fail() call would have thrown
+  // "fail is not defined" instead of a clear assertion failure, masking
+  // exactly the regression these tests exist to catch. `.rejects` reports
+  // a clean, standard Jest failure if the promise unexpectedly resolves,
+  // with no dependency on that helper.
   it("throws ServiceError with INVALID_PROCEEDS code for zero proceeds", async () => {
     const invoice = createInvoice({ status: InvoiceStatus.FUNDED });
     const { dataSource } = createFakeDataSource(invoice);
     const settlementService = new SettlementService(dataSource);
 
-    try {
-      await settlementService.settleInvoice({
-        invoiceId: invoice.id,
-        proceeds: "0.0000",
-        actorWallet: "GADMIN",
-      });
-      fail("Expected ServiceError to be thrown");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ServiceError);
-      expect((error as ServiceError).code).toBe("INVALID_PROCEEDS");
-      expect((error as ServiceError).statusCode).toBe(400);
-    }
+    const settlement = settlementService.settleInvoice({
+      invoiceId: invoice.id,
+      proceeds: "0.0000",
+      actorWallet: "GADMIN",
+    });
+
+    await expect(settlement).rejects.toBeInstanceOf(ServiceError);
+    await expect(settlement).rejects.toMatchObject({ code: "INVALID_PROCEEDS", statusCode: 400 });
   });
 
   it("throws ServiceError with INVOICE_NOT_FOUND code for missing invoice", async () => {
@@ -610,18 +624,14 @@ describe("Settlement integration: edge cases and input validation", () => {
     const { dataSource } = createFakeDataSource(invoice);
     const settlementService = new SettlementService(dataSource);
 
-    try {
-      await settlementService.settleInvoice({
-        invoiceId: crypto.randomUUID(),
-        proceeds: "6000.0000",
-        actorWallet: "GADMIN",
-      });
-      fail("Expected ServiceError to be thrown");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ServiceError);
-      expect((error as ServiceError).code).toBe("INVOICE_NOT_FOUND");
-      expect((error as ServiceError).statusCode).toBe(404);
-    }
+    const settlement = settlementService.settleInvoice({
+      invoiceId: crypto.randomUUID(),
+      proceeds: "6000.0000",
+      actorWallet: "GADMIN",
+    });
+
+    await expect(settlement).rejects.toBeInstanceOf(ServiceError);
+    await expect(settlement).rejects.toMatchObject({ code: "INVOICE_NOT_FOUND", statusCode: 404 });
   });
 
   it("throws ServiceError with INVALID_INVOICE_STATUS code for wrong status", async () => {
@@ -629,17 +639,14 @@ describe("Settlement integration: edge cases and input validation", () => {
     const { dataSource } = createFakeDataSource(invoice);
     const settlementService = new SettlementService(dataSource);
 
-    try {
-      await settlementService.settleInvoice({
-        invoiceId: invoice.id,
-        proceeds: "6000.0000",
-        actorWallet: "GADMIN",
-      });
-      fail("Expected ServiceError to be thrown");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ServiceError);
-      expect((error as ServiceError).code).toBe("INVALID_INVOICE_STATUS");
-    }
+    const settlement = settlementService.settleInvoice({
+      invoiceId: invoice.id,
+      proceeds: "6000.0000",
+      actorWallet: "GADMIN",
+    });
+
+    await expect(settlement).rejects.toBeInstanceOf(ServiceError);
+    await expect(settlement).rejects.toMatchObject({ code: "INVALID_INVOICE_STATUS" });
   });
 
   it("throws ServiceError with NO_CONFIRMED_INVESTMENTS code when no investments confirmed", async () => {
@@ -647,17 +654,14 @@ describe("Settlement integration: edge cases and input validation", () => {
     const { dataSource } = createFakeDataSource(invoice);
     const settlementService = new SettlementService(dataSource);
 
-    try {
-      await settlementService.settleInvoice({
-        invoiceId: invoice.id,
-        proceeds: "6000.0000",
-        actorWallet: "GADMIN",
-      });
-      fail("Expected ServiceError to be thrown");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ServiceError);
-      expect((error as ServiceError).code).toBe("NO_CONFIRMED_INVESTMENTS");
-    }
+    const settlement = settlementService.settleInvoice({
+      invoiceId: invoice.id,
+      proceeds: "6000.0000",
+      actorWallet: "GADMIN",
+    });
+
+    await expect(settlement).rejects.toBeInstanceOf(ServiceError);
+    await expect(settlement).rejects.toMatchObject({ code: "NO_CONFIRMED_INVESTMENTS" });
   });
 });
 

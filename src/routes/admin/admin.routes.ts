@@ -3,7 +3,8 @@ import { DataSource } from "typeorm";
 import { Request, Response, NextFunction } from "express";
 
 import { ipWhitelistMiddleware } from "@/middleware/ip-whitelist.middleware";
-import { createAuthMiddleware } from "@/middleware/auth.middleware";
+import { createAuthMiddleware, requireAdmin } from "@/middleware/auth.middleware";
+import { User } from "@/models/User.model";
 import { requireAdminRole } from "@/middleware/require-admin-role.middleware";
 import type { AuthService } from "@/services/auth.service";
 import type { AclService } from "@/services/acl.service";
@@ -13,6 +14,7 @@ import { createAdminUsersRouter } from "./users.routes";
 import type { InvoiceExtensionService } from "@/services/invoice-extension.service";
 import type { AdminMetricsService, AdminMetricsQuery } from "@/services/admin-metrics.service";
 import type { AdminSettlementService } from "@/services/admin-settlement.service";
+import type { InvoiceEscrowContractService } from "@/services/stellar/invoice-escrow-contract.service";
 import { approveKYC } from "./approve-kyc";
 import { rejectKYC } from "./reject-kyc";
 import { revokeKYC } from "./revoke-kyc";
@@ -27,6 +29,8 @@ import { createAdminSettlementRouter } from "./settlement.routes";
 import { AppError } from "@/utils/http-error";
 import { logger } from "@/observability/logger";
 import type { AuthenticatedRequest } from "@/types/auth";
+import { listInvoices } from "./list-invoices";
+import { reviewInvoice } from "./review-invoice";
 
 export interface AdminRouterDependencies {
   dataSource: DataSource;
@@ -41,6 +45,8 @@ export interface AdminRouterDependencies {
   metricsService?: AdminMetricsService;
   /** Optional: enables POST /invoices/:invoiceId/settle for admin settlement. */
   adminSettlementService?: AdminSettlementService;
+  adminWallets?: string[];
+  invoiceEscrowContractService?: InvoiceEscrowContractService;
 }
 
 interface ExtensionReviewBody {
@@ -90,6 +96,8 @@ export function createAdminRouter({
   extensionService: _extensionService,
   metricsService: _metricsService,
   adminSettlementService,
+  adminWallets = [],
+  invoiceEscrowContractService
 }: AdminRouterDependencies): Router {
   const router = Router();
 
@@ -106,7 +114,7 @@ export function createAdminRouter({
   // thing standing between a caller and the platform's numbers. A valid
   // `x-admin-key` still passes, which keeps the older KYC and invoice review
   // flows working exactly as they did before this gate existed.
-  const requireAdmin = requireAdminRole();
+  const requireAdminRoleMiddleware = requireAdminRole();
   router.use((req: Request, res: Response, next: NextFunction): void => {
     const adminKey = req.headers["x-admin-key"];
     if (adminKey && adminKey === process.env.ADMIN_API_KEY) {
@@ -120,7 +128,7 @@ export function createAdminRouter({
         next(err);
         return;
       }
-      requireAdmin(req, res, next);
+      requireAdminRoleMiddleware(req, res, next);
     });
   });
 
@@ -137,6 +145,7 @@ export function createAdminRouter({
   });
 
   if (invoiceService) {
+    // Legacy x-admin-key routes
     router.post("/invoices/:id/approve", (req, res) => {
       approveInvoice(req, res, invoiceService);
     });
@@ -144,6 +153,33 @@ export function createAdminRouter({
     router.post("/invoices/:id/reject", (req, res) => {
       rejectInvoice(req, res, invoiceService);
     });
+
+    // New JWT-authenticated admin routes for invoices
+    if (authService) {
+      const authenticateJWT = createAuthMiddleware(authService);
+      const requireAdminJWT = requireAdmin(adminWallets);
+
+      router.get(
+        "/invoices",
+        authenticateJWT,
+        requireAdminJWT,
+        (req, res) => {
+          listInvoices(req, res, invoiceService);
+        }
+      );
+
+      router.patch(
+        "/invoices/:invoiceId",
+        authenticateJWT,
+        requireAdminJWT,
+        (req, res) => {
+          reviewInvoice(req, res, invoiceService, invoiceEscrowContractService, async (sellerId) => {
+            const seller = await dataSource.getRepository(User).findOne({ where: { id: sellerId } });
+            return seller?.stellarAddress ?? "UNKNOWN";
+          });
+        }
+      );
+    }
   }
 
   // ---- Admin user management (role assignment, suspension) ----

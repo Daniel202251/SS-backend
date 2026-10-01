@@ -731,4 +731,70 @@ public async createEscrowOnChain(input: CreateEscrowInput): Promise<CreateEscrow
       operation,
     };
   }
+
+  public buildRegisterInvoiceTx(
+    invoiceId: string,
+    sellerAddress: string,
+    amountStroops: bigint | number | string
+  ): xdr.Operation {
+    const safeInvoiceId = sanitizeString(invoiceId, "invoiceId");
+    const safeSeller = sanitizeString(sellerAddress, "sellerAddress");
+    const amountBigInt = this.parseStroopAmount(amountStroops, "amountStroops");
+
+    return this.contract.call(
+      "register_invoice",
+      nativeToScVal(safeInvoiceId, { type: "symbol" }),
+      new Address(safeSeller).toScVal(),
+      nativeToScVal(amountBigInt, { type: "i128" })
+    );
+  }
+
+  public async executeRegisterInvoice(
+    input: { invoiceId: string; sellerAddress: string; amountStroops: string | bigint | number }
+  ): Promise<{ transactionHash: string; ledger: number | null }> {
+    if (!this.rpcServer || !this.networkPassphrase || !this.platformSecretKey) {
+      throw new Error("Escrow contract RPC and signer configuration is incomplete.");
+    }
+    
+    const amountBigInt = this.parseStroopAmount(input.amountStroops, "amountStroops");
+    
+    const operation = this.buildRegisterInvoiceTx(
+      input.invoiceId,
+      input.sellerAddress,
+      amountBigInt
+    );
+
+    const signer = Keypair.fromSecret(this.platformSecretKey);
+    const account = await this.rpcServer.getAccount(signer.publicKey());
+    const transaction = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(operation)
+      .setTimeout(30)
+      .build();
+      
+    const prepared = await this.rpcServer.prepareTransaction(transaction);
+    prepared.sign(signer);
+
+    const submitted = await this.submitTransaction(prepared);
+    if (submitted.status === "ERROR") {
+      throw new Error("Failed to submit register_invoice transaction");
+    }
+
+    const { status, ledger } = await this.waitForTransactionConfirmation(submitted.txHash);
+    if (status !== "SUCCESS") {
+      throw new Error(`register_invoice transaction failed on-chain: ${status}`);
+    }
+    
+    this.logger.info("Soroban invoice registered on-chain.", {
+      invoiceId: input.invoiceId,
+      sorobanContractId: this.contractId,
+      sellerAddress: input.sellerAddress,
+      amountStroops: amountBigInt.toString(),
+      transactionHash: submitted.txHash,
+    });
+
+    return { transactionHash: submitted.txHash, ledger };
+  }
 }

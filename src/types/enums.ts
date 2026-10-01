@@ -74,6 +74,7 @@ export enum NotificationType {
   INVOICE_SETTLED = "invoice_settled",
   INVESTMENT_CREATED = "investment_created",
   INVOICE_APPROVED = "invoice_approved",
+  /** Funding deadline extended after admin approval (issue #477). */
   INVOICE_DEADLINE_EXTENDED = "invoice_deadline_extended",
   INVOICE_MATURED = "invoice_matured",
   SETTLEMENT_RECEIVED = "settlement_received",

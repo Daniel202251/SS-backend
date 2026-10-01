@@ -17,6 +17,7 @@ import {
 } from "../../src/lib/invoice-state-machine";
 import { createErrorMiddleware } from "../../src/middleware/error.middleware";
 import { Investment } from "../../src/models/Investment.model";
+import { InvestorAcknowledgement } from "../../src/models/InvestorAcknowledgement.model";
 import type { Invoice } from "../../src/models/Invoice.model";
 import type { Notification } from "../../src/models/Notification.model";
 import type { AppLogger } from "../../src/observability/logger";
@@ -237,6 +238,12 @@ describe("notification service (#467)", () => {
             if (failCommit) throw new Error("commit failed");
             return result;
           },
+          // Issue #473 — the accreditation gate looks the investor's terms
+          // acknowledgement up before creating the investment.
+          getRepository: (entity: unknown) =>
+            entity === InvestorAcknowledgement
+              ? { findOne: async () => ({ acknowledgedAt: new Date() }) }
+              : manager,
         } as unknown as DataSource;
       }
 
@@ -355,6 +362,8 @@ describe("notification service (#467)", () => {
         insert: jest.fn().mockResolvedValue(undefined),
         update: jest.fn().mockResolvedValue({ affected: 3 }),
         count: jest.fn().mockResolvedValue(7),
+        create: jest.fn().mockImplementation((value: unknown) => value),
+        save: jest.fn().mockImplementation((value: unknown) => Promise.resolve(value)),
       };
       const dataSource = { getRepository: () => repository } as unknown as DataSource;
       return { service: createNotificationService(dataSource), repository };
@@ -389,8 +398,14 @@ describe("notification service (#467)", () => {
       await service.createNotifications(entries);
       await service.createNotifications([]);
 
-      expect(repository.insert).toHaveBeenCalledTimes(1);
-      expect(repository.insert).toHaveBeenCalledWith(entries);
+      // One create per entry and a single save for the whole batch, so the
+      // empty batch writes nothing.
+      expect(repository.create).toHaveBeenCalledTimes(2);
+      expect(repository.save).toHaveBeenCalledTimes(1);
+      expect(repository.save).toHaveBeenCalledWith([
+        { userId: "a", type: NotificationType.INVOICE_SETTLED, title: "t", message: "m", data: null },
+        { userId: "b", type: NotificationType.INVOICE_SETTLED, title: "t", message: "m", data: null },
+      ]);
     });
   });
 

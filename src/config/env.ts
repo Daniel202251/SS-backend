@@ -88,6 +88,7 @@ export interface AppConfig {
   };
   admin: {
     ipWhitelist: string[];
+    wallets: string[];
   };
   /** Investor accreditation terms version (issue #473). Bumping forces re-ack. */
   termsVersion: string;
@@ -437,6 +438,7 @@ export function getConfig(): AppConfig {
 
     admin: {
       ipWhitelist: parseCsv(process.env.ADMIN_IP_WHITELIST),
+      wallets: parseCsv(process.env.ADMIN_WALLETS),
     },
 
     termsVersion: (process.env.TERMS_VERSION?.trim() || "1"),
