@@ -4,8 +4,8 @@ export function scValI128(amount: bigint | string): xdr.ScVal {
   return nativeToScVal(BigInt(amount), { type: "i128" });
 }
 
-export function scValU64(val: number): xdr.ScVal {
-  return nativeToScVal(val, { type: "u64" });
+export function scValU64(val: number | bigint | string): xdr.ScVal {
+  return nativeToScVal(BigInt(val), { type: "u64" });
 }
 
 export function scValSymbol(val: string): xdr.ScVal {

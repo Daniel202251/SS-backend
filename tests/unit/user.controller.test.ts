@@ -31,6 +31,7 @@ describe("UserController", () => {
     mockRepo = {
       findById: jest.fn().mockResolvedValue(mockUser),
       findByStellarAddress: jest.fn().mockResolvedValue(mockUser),
+      findByEmail: jest.fn().mockResolvedValue(null),
       findAll: jest.fn().mockResolvedValue([mockUser]),
       count: jest.fn().mockResolvedValue(1),
       save: jest.fn().mockImplementation(async (u) => ({ ...mockUser, ...u })),
@@ -281,6 +282,7 @@ describe("UserController", () => {
       const repoWithoutCount: UserRepositoryContract = {
         findById: mockRepo.findById,
         findByStellarAddress: mockRepo.findByStellarAddress,
+        findByEmail: mockRepo.findByEmail,
         findAll: mockRepo.findAll,
         save: mockRepo.save,
       };

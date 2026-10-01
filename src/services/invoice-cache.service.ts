@@ -45,7 +45,7 @@ export class InvoiceCacheService {
           logger.info("InvoiceCache: Redis connected");
         });
 
-        this.redis.on("error", (err) => {
+        this.redis.on("error", (err: unknown) => {
           this.isRedisHealthy = false;
           logger.warn("InvoiceCache: Redis error, falling back gracefully", {
             error: err instanceof Error ? err.message : String(err),

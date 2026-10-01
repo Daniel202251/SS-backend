@@ -27,6 +27,7 @@ export class SettlementController {
         invoiceId,
         proceeds,
         actorWallet: req.user.stellarAddress,
+        sellerId: req.user.id,
       });
 
       return res.status(200).json({

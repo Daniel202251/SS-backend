@@ -10,6 +10,8 @@ import { sanitizeInputMiddleware } from "./middleware/sanitize-input.middleware"
 import { logger, type AppLogger } from "./observability/logger";
 import { getMetricsContentType, MetricsRegistry } from "./observability/metrics";
 
+import { randomUUID } from "crypto";
+
 import { createAuthRouter } from "./routes/auth.routes";
 import { createKycRouter, createKycWebhookRouter } from "./routes/kyc.routes";
 import { createNotificationRouter } from "./routes/notification.routes";
@@ -17,16 +19,53 @@ import { createInvoiceRouter } from "./routes/invoice.routes";
 import { createInvestmentRouter } from "./routes/investment.routes";
 import { createSettlementRouter } from "./routes/settlement.routes";
 import { createMarketplaceRouter } from "./routes/marketplace.routes";
+import { createSellerRouter } from "./routes/seller.routes";
 import { createAdminRouter } from "./routes/admin/admin.routes";
+import {
+  createDataSourceSuspensionLookup,
+  createSuspendedWalletGuard,
+  type SuspensionLookup,
+} from "./middleware/suspended-wallet.middleware";
+import type { AdminUserService } from "./services/admin-user.service";
+import { createInvestorRouter } from "./routes/investor.routes";
+import { createPortfolioRouter } from "./routes/portfolio.routes";
 import { createContractGuardService } from "./services/stellar/contract-guard.service";
+import { createKeysRouter } from "./routes/keys.routes";
+import { createDividendsRouter } from "./routes/dividends.routes";
+import { createSecondaryMarketRouter } from "./routes/secondary-market.routes";
+import { createWatchlistRouter } from "./routes/watchlist.routes";
+import type { RatingsLeaderboardService } from "./services/ratings-leaderboard.service";
+import type { DividendCycleService } from "./services/dividend-cycle.service";
+import type { DividendDistributionService } from "./services/dividend-distribution.service";
+import type { RoyaltyEarningsService } from "./services/royalty-earnings.service";
+import type { SubscriptionStatusService } from "./services/subscription-status.service";
+import type { OnboardingService } from "./services/onboarding.service";
+import type { AtomicSwapService } from "./services/atomic-swap.service";
+import type { AclService } from "./services/acl.service";
+import type { CreatorKeyService } from "./services/creator-key.service";
+import type { CurveMigrationService } from "./services/curve-migration.service";
+import { createSwapRouter } from "./routes/swap.routes";
+import { createRoyaltiesRouter } from "./routes/royalties.routes";
+import { createSubscriptionsRouter } from "./routes/subscriptions.routes";
+import { createOnboardingRouter } from "./routes/onboarding.routes";
 
 import type { AuthService } from "./services/auth.service";
 import type { NotificationService } from "./services/notification.service";
 import type { InvoiceService } from "./services/invoice.service";
 import type { InvestmentService } from "./services/investment.service";
 import type { SettlementService } from "./services/settlement.service";
+import type { AdminSettlementService } from "./services/admin-settlement.service";
 import type { MarketplaceService } from "./services/marketplace.service";
+import type { SellerService } from "./services/seller.service";
 import type { KycService } from "./services/kyc.service";
+import type { InvoiceSearchService } from "./services/invoice-search.service";
+import type { InvestorAcknowledgementService } from "./services/investor-acknowledgement.service";
+import type { InvoiceExtensionService } from "./services/invoice-extension.service";
+import type { AdminMetricsService } from "./services/admin-metrics.service";
+import type { PortfolioService } from "./services/portfolio.service";
+import type { SecondaryMarketService } from "./services/secondary-market.service";
+import type { WatchlistService } from "./services/watchlist.service";
+import type { SettlementWorker } from "./workers/settlement.worker";
 
 import dataSource from "./config/database";
 
@@ -56,14 +95,70 @@ interface RequestWithId extends Request {
   requestId?: string;
 }
 
+async function probeDatabase(): Promise<"ok" | "degraded"> {
+  if (!dataSource.isInitialized) {
+    return "ok";
+  }
+
+  try {
+    await dataSource.query("SELECT 1");
+    return "ok";
+  } catch {
+    return "degraded";
+  }
+}
+
+async function probeHorizon(): Promise<"ok" | "degraded"> {
+  const url = process.env.HORIZON_URL;
+  if (!url) {
+    return "ok";
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    return response.ok ? "ok" : "degraded";
+  } catch {
+    return "degraded";
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export interface AppDependencies {
   authService: AuthService;
   notificationService?: NotificationService;
   invoiceService?: InvoiceService;
   investmentService?: InvestmentService;
   settlementService?: SettlementService;
+  adminSettlementService?: AdminSettlementService;
   marketplaceService?: MarketplaceService;
+  sellerService?: SellerService;
   kycService?: KycService;
+  invoiceSearchService?: InvoiceSearchService;
+  adminUserService?: AdminUserService;
+  /** Defaults to reading users.is_suspended from the app data source. */
+  suspensionLookup?: SuspensionLookup;
+  ratingsLeaderboardService?: RatingsLeaderboardService;
+  dividendCycleService?: DividendCycleService;
+  dividendDistributionService?: DividendDistributionService;
+  royaltyEarningsService?: RoyaltyEarningsService;
+  subscriptionStatusService?: SubscriptionStatusService;
+  onboardingService?: OnboardingService;
+  swapService?: AtomicSwapService;
+  aclService?: AclService;
+  creatorKeyService?: CreatorKeyService;
+  curveMigrationService?: CurveMigrationService;
+  secondaryMarketService?: SecondaryMarketService;
+  watchlistService?: WatchlistService;
+  settlementWorker?: SettlementWorker;
+  acknowledgementService?: InvestorAcknowledgementService;
+  extensionService?: InvoiceExtensionService;
+  portfolioService?: PortfolioService;
+  adminMetricsService?: AdminMetricsService;
+  invoiceEscrowContractService?: import("./services/stellar/invoice-escrow-contract.service").InvoiceEscrowContractService;
   logger?: AppLogger;
   metricsEnabled?: boolean;
   metricsRegistry?: MetricsRegistry;
@@ -88,8 +183,31 @@ export function createApp({
   invoiceService,
   investmentService,
   settlementService,
+  adminSettlementService,
   marketplaceService,
+  sellerService,
   kycService,
+  invoiceSearchService,
+  adminUserService,
+  suspensionLookup,
+  ratingsLeaderboardService,
+  dividendCycleService,
+  dividendDistributionService,
+  royaltyEarningsService,
+  subscriptionStatusService,
+  onboardingService,
+  swapService,
+  aclService,
+  creatorKeyService,
+  curveMigrationService,
+  secondaryMarketService,
+  watchlistService,
+  settlementWorker,
+  acknowledgementService,
+  portfolioService,
+  extensionService,
+  adminMetricsService,
+  invoiceEscrowContractService,
   logger: appLogger = logger,
   metricsEnabled = true,
   metricsRegistry = new MetricsRegistry(),
@@ -142,17 +260,30 @@ export function createApp({
         : undefined,
     });
   }
-  app.get("/health", (req, res) => {
-    const requestId = (req as RequestWithId).requestId ?? "unknown";
+  app.get("/health", async (_req, res) => {
+    const requestId = (_req as RequestWithId).requestId ?? randomUUID();
 
-    res.status(200).json({
-      success: true,
+    const database = await probeDatabase();
+    const horizon = await probeHorizon();
+    const healthy = database === "ok" && horizon === "ok";
+
+    if (healthy) {
+      appLogger?.info("Health check passed", { requestId, database, horizon });
+    } else {
+      appLogger?.warn("Health check degraded", { requestId, database, horizon });
+    }
+
+    res.status(healthy ? 200 : 503).json({
+      success: healthy,
       requestId,
       data: {
-        status: "ok",
+        status: healthy ? "ok" : "degraded",
         timestamp: new Date().toISOString(),
         uptimeSeconds: Number(process.uptime().toFixed(3)),
         requestId,
+        traceId: requestId,
+        database,
+        horizon,
       },
     });
   });
@@ -178,7 +309,18 @@ export function createApp({
     });
   }
 
+  // Every request with a bearer token for a suspended wallet gets a 403,
+  // on all authenticated routes.
+  app.use(
+    "/api/v1",
+    createSuspendedWalletGuard(
+      suspensionLookup ?? createDataSourceSuspensionLookup(dataSource),
+      appLogger
+    )
+  );
+
   app.use("/api/v1/auth", createAuthRouter(authService, appLogger));
+  app.use("/auth", createAuthRouter(authService, appLogger));
 
   if (kycService) {
     app.use("/api/v1/kyc", createKycRouter(kycService, authService));
@@ -186,6 +328,7 @@ export function createApp({
 
   if (notificationService) {
     app.use("/api/v1/notifications", createNotificationRouter(notificationService, authService));
+    app.use("/notifications", createNotificationRouter(notificationService, authService));
   }
 
   // The emergency pause guard only has something to check when a Soroban
@@ -199,17 +342,18 @@ export function createApp({
       : undefined;
 
   if (invoiceService && config) {
-    app.use(
-      "/api/v1/invoices",
-      createInvoiceRouter({
-        invoiceService,
-        config,
-        investmentService,
-        authService,
-        contractGuardService,
-        contractId: pauseGuardContractId,
-      })
-    );
+    const invoiceRouter = createInvoiceRouter({
+      invoiceService,
+      config,
+      investmentService,
+      authService,
+      contractGuardService,
+      contractId: pauseGuardContractId,
+      invoiceSearchService,
+      extensionService,
+    });
+    app.use("/api/v1/invoices", invoiceRouter);
+    app.use("/invoices", invoiceRouter);
   }
 
   if (investmentService) {
@@ -224,11 +368,26 @@ export function createApp({
     );
   }
 
+  // Issue #473 — accreditation acknowledgement
+  if (acknowledgementService) {
+    const investorRouter = createInvestorRouter({ authService, acknowledgementService });
+    app.use("/api/v1/investors", investorRouter);
+    app.use("/investors", investorRouter);
+  }
+
+  // Issue #479 — portfolio summary with P&L
+  if (portfolioService) {
+    const portfolioRouter = createPortfolioRouter({ authService, portfolioService });
+    app.use("/api/v1/portfolio", portfolioRouter);
+    app.use("/portfolio", portfolioRouter);
+  }
+
   if (settlementService) {
     app.use(
       "/api/v1/settlements",
       createSettlementRouter({
         settlementService,
+        settlementWorker,
         contractGuardService,
         contractId: pauseGuardContractId,
       })
@@ -237,12 +396,94 @@ export function createApp({
 
   if (marketplaceService) {
     app.use("/api/v1/marketplace", createMarketplaceRouter({ marketplaceService }));
+    app.use("/marketplace", createMarketplaceRouter({ marketplaceService }));
+  }
+
+  if (sellerService) {
+    app.use("/api/v1/seller", createSellerRouter({ sellerService, authService }));
+    app.use("/seller", createSellerRouter({ sellerService, authService }));
+  }
+
+  if (secondaryMarketService && authService) {
+    app.use(
+      "/api/v1/secondary",
+      createSecondaryMarketRouter({ secondaryMarketService, authService })
+    );
+  }
+
+  if (watchlistService && authService) {
+    app.use("/api/v1/watchlist", createWatchlistRouter({ watchlistService, authService }));
+  }
+
+  // ---- Keys: Ratings Leaderboard ----
+  if (ratingsLeaderboardService) {
+    app.use(
+      "/api/v1/keys",
+      createKeysRouter({
+        ratingsLeaderboardService,
+        authService,
+        creatorKeyService,
+        curveMigrationService,
+      })
+    );
+  }
+
+  // ---- Dividends: Cycle Config & Distribution ----
+  if (dividendCycleService) {
+    app.use(
+      "/api/v1/dividends",
+      createDividendsRouter({ dividendCycleService, authService, dividendDistributionService })
+    );
+  }
+
+  // ---- Royalties: creator earnings and claim history (issue #537) ----
+  if (royaltyEarningsService) {
+    app.use(
+      "/api/v1/royalties",
+      createRoyaltiesRouter({ royaltyEarningsService, authService })
+    );
+  }
+
+  // ---- Subscriptions: gated-content access check (issue #539) ----
+  // Public read: a content gate has to answer before the visitor is known.
+  if (subscriptionStatusService) {
+    app.use(
+      "/api/v1/subscriptions",
+      createSubscriptionsRouter({ subscriptionStatusService })
+    );
+  }
+
+  // ---- Onboarding: tour completion state (issue #540) ----
+  if (onboardingService) {
+    app.use(
+      "/api/v1/onboarding",
+      createOnboardingRouter({ onboardingService, authService })
+    );
+  }
+
+  if (swapService) {
+    const swapRouter = createSwapRouter({ swapService, authService });
+    app.use("/api/v1/swaps", swapRouter);
+    app.use("/swaps", swapRouter);
   }
 
   if (config?.admin?.ipWhitelist?.length) {
     app.use(
       "/api/v1/admin",
-      createAdminRouter({ dataSource, allowedCidrs: config.admin.ipWhitelist, invoiceService })
+      createAdminRouter({
+        dataSource,
+        allowedCidrs: config.admin.ipWhitelist,
+        authService,
+        aclService,
+        invoiceService,
+        adminUserService,
+        extensionService,
+        metricsService: adminMetricsService,
+        adminSettlementService,
+        adminWallets: config.admin.wallets || [],
+        invoiceEscrowContractService
+
+      })
     );
   }
 

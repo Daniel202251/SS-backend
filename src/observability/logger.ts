@@ -81,6 +81,64 @@ export function normalizeLogMetadata(
   return { value: sanitized };
 }
 
+const MAX_METADATA_DEPTH = 8;
+const MAX_DEPTH_PLACEHOLDER = "[MaxDepth]";
+const CIRCULAR_PLACEHOLDER = "[Circular]";
+const MAX_METADATA_KEYS = 64;
+
+function sanitizeMetadataValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
+  if (value === null) return null;
+
+  const type = typeof value;
+  if (type === "string") return value;
+  if (type === "number" || type === "boolean") return value;
+  if (type === "bigint") return `${value}n`;
+  if (type === "function") return "[Function]";
+  if (type === "symbol") return String(value);
+  if (type === "undefined") return undefined;
+
+  if (value instanceof Error) {
+    return { name: value.name, message: value.message, stack: value.stack };
+  }
+
+  if (depth <= 0) return MAX_DEPTH_PLACEHOLDER;
+
+  const asObject = value as object;
+  if (seen.has(asObject)) return CIRCULAR_PLACEHOLDER;
+  seen.add(asObject);
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeMetadataValue(item, depth - 1, seen));
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = sanitizeMetadataValue(item, depth - 1, seen);
+  }
+  return out;
+}
+
+export function sanitizeLogMetadata(metadata: LogMetadata | undefined): LogMetadata {
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {};
+  }
+
+  try {
+    const sanitized = sanitizeMetadataValue(metadata, MAX_METADATA_DEPTH, new WeakSet()) as LogMetadata;
+    const keys = Object.keys(sanitized);
+    if (keys.length <= MAX_METADATA_KEYS) return sanitized;
+
+    const bounded: Record<string, unknown> = {};
+    for (const key of Object.keys(sanitized).slice(0, MAX_METADATA_KEYS)) {
+      bounded[key] = sanitized[key];
+    }
+    bounded.droppedMetadataKeys = Object.keys(sanitized).length - MAX_METADATA_KEYS;
+    return bounded;
+  } catch {
+    return { metadata: "[Unserializable log metadata]" };
+  }
+}
+
 class WinstonAppLogger implements AppLogger {
   /**
    * Issue #409 — memoized child loggers. winston's `child()` builds a whole
@@ -97,6 +155,11 @@ class WinstonAppLogger implements AppLogger {
     metadata?: LogMetadata
   ): void {
     try {
+      if (typeof (this.baseLogger as { isLevelEnabled?: (lvl: string) => boolean }).isLevelEnabled === "function") {
+        if (!(this.baseLogger as { isLevelEnabled?: (lvl: string) => boolean }).isLevelEnabled!(level)) {
+          return;
+        }
+      }
       const msg = typeof message === "string" ? message : String(message ?? "");
       const meta = normalizeLogMetadata(metadata);
       this.baseLogger[level](msg, meta);
@@ -104,6 +167,12 @@ class WinstonAppLogger implements AppLogger {
       // Emergency failsafe: logging operations must never throw and crash downstream caller flows
       try {
         const errorMsg = err instanceof Error ? err.message : String(err);
+        if (typeof this.baseLogger.error === "function") {
+          this.baseLogger.error("Log emission failed; original entry dropped.", {
+            failedLevel: level,
+            reason: errorMsg,
+          });
+        }
         process.stderr.write(
           `[Logger Fallback: ${level.toUpperCase()}] ${String(message)} | Logging Error: ${errorMsg}\n`
         );
@@ -132,7 +201,13 @@ class WinstonAppLogger implements AppLogger {
   child(metadata: LogMetadata = {}): AppLogger {
     try {
       const meta = normalizeLogMetadata(metadata);
-      return new WinstonAppLogger(this.baseLogger.child(meta));
+      const cacheKey = JSON.stringify(meta);
+      const cached = this.children.get(cacheKey);
+      if (cached) return cached;
+
+      const child = new WinstonAppLogger(this.baseLogger.child(meta));
+      this.children.set(cacheKey, child);
+      return child;
     } catch {
       return this;
     }

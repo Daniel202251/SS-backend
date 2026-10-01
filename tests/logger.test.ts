@@ -11,7 +11,7 @@ import {
   sanitizeLogMetadata,
 } from "../src/observability/logger";
 
-function makeBaseLogger() {
+function makeBaseLogger(): any {
   return {
     debug: jest.fn(),
     info: jest.fn(),
@@ -31,7 +31,7 @@ describe("logger hardening (issue #406)", () => {
 
     it("breaks circular references instead of throwing", () => {
       const circular: Record<string, unknown> = { name: "node" };
-      circular.self = circular;
+      circular.circular = circular;
 
       expect(() => sanitizeLogMetadata({ nested: circular })).not.toThrow();
       expect(sanitizeLogMetadata({ circular })).toEqual({
@@ -113,7 +113,7 @@ describe("logger hardening (issue #406)", () => {
 });
 
 describe("logger performance hardening (issue #409)", () => {
-  function makeLevelAwareBase(level: string) {
+  function makeLevelAwareBase(level: string): any {
     return {
       debug: jest.fn(),
       info: jest.fn(),
