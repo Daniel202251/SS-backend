@@ -21,6 +21,12 @@ import { createSettlementRouter } from "./routes/settlement.routes";
 import { createMarketplaceRouter } from "./routes/marketplace.routes";
 import { createSellerRouter } from "./routes/seller.routes";
 import { createAdminRouter } from "./routes/admin/admin.routes";
+import {
+  createDataSourceSuspensionLookup,
+  createSuspendedWalletGuard,
+  type SuspensionLookup,
+} from "./middleware/suspended-wallet.middleware";
+import type { AdminUserService } from "./services/admin-user.service";
 import { createInvestorRouter } from "./routes/investor.routes";
 import { createPortfolioRouter } from "./routes/portfolio.routes";
 import { createContractGuardService } from "./services/stellar/contract-guard.service";
@@ -132,6 +138,9 @@ export interface AppDependencies {
   sellerService?: SellerService;
   kycService?: KycService;
   invoiceSearchService?: InvoiceSearchService;
+  adminUserService?: AdminUserService;
+  /** Defaults to reading users.is_suspended from the app data source. */
+  suspensionLookup?: SuspensionLookup;
   ratingsLeaderboardService?: RatingsLeaderboardService;
   dividendCycleService?: DividendCycleService;
   dividendDistributionService?: DividendDistributionService;
@@ -178,6 +187,8 @@ export function createApp({
   sellerService,
   kycService,
   invoiceSearchService,
+  adminUserService,
+  suspensionLookup,
   ratingsLeaderboardService,
   dividendCycleService,
   dividendDistributionService,
@@ -295,6 +306,16 @@ export function createApp({
       res.send(metricsRegistry.renderPrometheusMetrics());
     });
   }
+
+  // Every request with a bearer token for a suspended wallet gets a 403,
+  // on all authenticated routes.
+  app.use(
+    "/api/v1",
+    createSuspendedWalletGuard(
+      suspensionLookup ?? createDataSourceSuspensionLookup(dataSource),
+      appLogger
+    )
+  );
 
   app.use("/api/v1/auth", createAuthRouter(authService, appLogger));
   app.use("/auth", createAuthRouter(authService, appLogger));
@@ -453,6 +474,7 @@ export function createApp({
         authService,
         aclService,
         invoiceService,
+        adminUserService,
         extensionService,
         metricsService: adminMetricsService,
         adminSettlementService,

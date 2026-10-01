@@ -140,10 +140,15 @@ export function createAuthMiddleware(
     const startedAt = Date.now();
 
     try {
-      req.user = await withTimeout(
+      const user = await withTimeout(
         Promise.resolve().then(() => authService.getCurrentUser(token)),
         timeoutMs
       );
+      if (user.isSuspended) {
+        next(new AppError(403, "This account has been suspended.", "ACCOUNT_SUSPENDED"));
+        return;
+      }
+      req.user = user;
       next();
     } catch (error) {
       if (error instanceof HttpError || error instanceof AppError) {

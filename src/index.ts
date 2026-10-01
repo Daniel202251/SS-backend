@@ -31,6 +31,7 @@ import { createSettlementService } from "./services/settlement.service";
 import { createAdminSettlementService } from "./services/admin-settlement.service";
 import { createMarketplaceService } from "./services/marketplace.service";
 import { createInvoiceSearchService } from "./services/invoice-search.service";
+import { createAdminUserService } from "./services/admin-user.service";
 import { KycService } from "./services/kyc.service";
 import { PaymentDistributorContractService } from "./services/stellar/payment-distributor-contract.service";
 import { createOnchainProjections } from "./services/onchain-projections.service";
@@ -171,6 +172,7 @@ export async function bootstrap(): Promise<{
     marketplaceService,
     kycService,
     invoiceSearchService: createInvoiceSearchService(dataSource),
+    adminUserService: createAdminUserService(dataSource, logger),
     ratingsLeaderboardService,
     dividendCycleService,
     secondaryMarketService,
@@ -203,24 +205,20 @@ export async function bootstrap(): Promise<{
     logger
   );
   maturityWorker.start();
-  server.on("close", () => {
-    void maturityWorker.stop();
-  });
 
-  return { server, settlementEvents };
   // ---- Start daily analytics snapshot cron (midnight UTC) ----
   const snapshotScheduler = scheduleAnalyticsSnapshotJob(dataSource);
 
   // ---- Start settlement worker cron (hourly) ----
   settlementWorker.start("0 * * * *");
 
-  // Stop schedulers on server close
   server.on("close", () => {
+    void maturityWorker.stop();
     snapshotScheduler.stop();
     settlementWorker.stop();
   });
 
-  return { server };
+  return { server, settlementEvents };
 }
 
 if (require.main === module) {

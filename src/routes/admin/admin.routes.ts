@@ -8,6 +8,8 @@ import { requireAdminRole } from "@/middleware/require-admin-role.middleware";
 import type { AuthService } from "@/services/auth.service";
 import type { AclService } from "@/services/acl.service";
 import type { InvoiceService } from "@/services/invoice.service";
+import type { AdminUserService } from "@/services/admin-user.service";
+import { createAdminUsersRouter } from "./users.routes";
 import type { InvoiceExtensionService } from "@/services/invoice-extension.service";
 import type { AdminMetricsService, AdminMetricsQuery } from "@/services/admin-metrics.service";
 import type { AdminSettlementService } from "@/services/admin-settlement.service";
@@ -32,6 +34,8 @@ export interface AdminRouterDependencies {
   authService: AuthService;
   aclService?: AclService;
   invoiceService?: InvoiceService;
+  /** Optional: enables the /users management endpoints (admin JWT required). */
+  adminUserService?: AdminUserService;
   extensionService?: InvoiceExtensionService;
   /** Issue #478 — platform metrics aggregation for the admin dashboard. */
   metricsService?: AdminMetricsService;
@@ -82,7 +86,8 @@ export function createAdminRouter({
   authService,
   aclService,
   invoiceService,
-extensionService: _extensionService,
+  adminUserService,
+  extensionService: _extensionService,
   metricsService: _metricsService,
   adminSettlementService,
 }: AdminRouterDependencies): Router {
@@ -139,6 +144,11 @@ extensionService: _extensionService,
     router.post("/invoices/:id/reject", (req, res) => {
       rejectInvoice(req, res, invoiceService);
     });
+  }
+
+  // ---- Admin user management (role assignment, suspension) ----
+  if (adminUserService) {
+    router.use("/users", createAdminUsersRouter(adminUserService, authService));
   }
 
   // ---- Integration ACL projected from ACLUpdated events ----

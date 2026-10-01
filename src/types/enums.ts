@@ -6,6 +6,7 @@ export enum UserType {
   SELLER = "seller",
   INVESTOR = "investor",
   BOTH = "both",
+  ADMIN = "admin",
 }
 
 /** Roles accepted by the administrative endpoints. */
@@ -77,8 +78,6 @@ export enum NotificationType {
   INVOICE_MATURED = "invoice_matured",
   SETTLEMENT_RECEIVED = "settlement_received",
   REFUND_PROCESSED = "refund_processed",
-  /** Funding deadline extended after admin approval (issue #477). */
-  INVOICE_DEADLINE_EXTENDED = "invoice_deadline_extended",
 }
 
 /** Seller funding-deadline extension request lifecycle (issue #477). */

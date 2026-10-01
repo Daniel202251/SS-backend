@@ -24,7 +24,7 @@ const USER_VALIDATION_CONSTRAINTS = Object.freeze({
 /** Columns used by profile lookups; relations are loaded explicitly by callers that need them. */
 export const USER_PROFILE_SELECT = [
   "id", "stellarAddress", "email", "userType", "kycStatus",
-  "isKycVerified", "createdAt", "updatedAt", "deletedAt",
+  "isKycVerified", "isSuspended", "createdAt", "updatedAt", "deletedAt",
 ] as const;
 
 @Entity("users")
@@ -61,6 +61,16 @@ export class User {
 
   @Column({ name: "is_kyc_verified", type: "boolean", default: false })
   isKycVerified!: boolean;
+
+  /** Suspended accounts are refused on every authenticated endpoint. */
+  @Column({ name: "is_suspended", type: "boolean", default: false })
+  isSuspended!: boolean;
+
+  @Column({ name: "suspended_at", type: "timestamptz", nullable: true })
+  suspendedAt!: Date | null;
+
+  @Column({ name: "suspension_reason", type: "text", nullable: true })
+  suspensionReason!: string | null;
 
   @CreateDateColumn({ name: "created_at" })
   createdAt!: Date;
@@ -318,6 +328,9 @@ export class User {
         userType: user.userType,
         kycStatus: user.kycStatus,
         isKycVerified: user.isKycVerified,
+        isSuspended: user.isSuspended,
+        suspendedAt: user.suspendedAt,
+        suspensionReason: user.suspensionReason,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         invoices: user.invoices,

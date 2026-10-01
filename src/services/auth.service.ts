@@ -802,6 +802,7 @@ export function toPublicUser(user: User): PublicUser {
     userType: user.userType,
     kycStatus: user.kycStatus,
     isKycVerified: user.isKycVerified,
+    isSuspended: user.isSuspended,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
