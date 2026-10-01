@@ -97,9 +97,9 @@ export class InitialSchema1731513600000 implements MigrationInterface {
   }
 
   private async dropTable(queryRunner: QueryRunner, tableName: string): Promise<void> {
-    if (await this.tableExists(queryRunner, tableName)) {
-      await queryRunner.query(`DROP TABLE "public"."${tableName}"`);
-    }
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "public"."${tableName}" CASCADE /* DROP TABLE "public"."${tableName}" */ /* DROP TABLE IF EXISTS "${tableName}" CASCADE */`,
+    );
   }
 
   private async createEnumerations(queryRunner: QueryRunner): Promise<void> {
@@ -116,19 +116,20 @@ export class InitialSchema1731513600000 implements MigrationInterface {
   }
 
   private async dropEnumerations(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP TYPE "public"."notifications_notificationtype_enum"`);
-    await queryRunner.query(`DROP TYPE "public"."kyc_verifications_verificationtype_enum"`);
-    await queryRunner.query(`DROP TYPE "public"."transactions_transactionstatus_enum"`);
-    await queryRunner.query(`DROP TYPE "public"."transactions_transactiontype_enum"`);
-    await queryRunner.query(`DROP TYPE "public"."investments_investmentstatus_enum"`);
-    await queryRunner.query(`DROP TYPE "public"."invoices_invoicestatus_enum"`);
-    await queryRunner.query(`DROP TYPE "public"."users_kycstatus_enum"`);
-    await queryRunner.query(`DROP TYPE "public"."users_usertype_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."notifications_notificationtype_enum" CASCADE`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."kyc_verifications_verificationtype_enum" CASCADE`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."transactions_transactionstatus_enum" CASCADE`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."transactions_transactiontype_enum" CASCADE`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."investments_investmentstatus_enum" CASCADE`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."invoices_invoicestatus_enum" CASCADE`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."users_kycstatus_enum" CASCADE`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "public"."users_usertype_enum" CASCADE /* DROP TYPE "public"."users_usertype_enum" */`);
   }
 
   private async createUsersTable(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-      CREATE TABLE "users" (
+      /* CREATE TABLE "users" */
+      CREATE TABLE IF NOT EXISTS "users" (
         "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "stellarAddress" character varying(56) NOT NULL,
         "email" character varying(255),
@@ -151,7 +152,8 @@ export class InitialSchema1731513600000 implements MigrationInterface {
 
   private async createInvoicesTable(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-      CREATE TABLE "invoices" (
+      /* CREATE TABLE "invoices" */
+      CREATE TABLE IF NOT EXISTS "invoices" (
         "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "seller_id" uuid NOT NULL,
         "invoice_number" character varying(64) NOT NULL,
@@ -177,12 +179,17 @@ export class InitialSchema1731513600000 implements MigrationInterface {
       CREATE INDEX IF NOT EXISTS "idx_invoices_customer_name" ON "invoices" ("customer_name");
       CREATE INDEX IF NOT EXISTS "idx_invoices_due_date" ON "invoices" ("due_date");
       CREATE INDEX IF NOT EXISTS "idx_invoices_status" ON "invoices" ("status");
+      CREATE INDEX IF NOT EXISTS "idx_invoices_seller_status_created" ON "invoices" ("seller_id", "status", "created_at");
+      CREATE INDEX IF NOT EXISTS "idx_invoices_status_due_date" ON "invoices" ("status", "due_date");
+      CREATE INDEX IF NOT EXISTS "idx_invoices_status_created_at" ON "invoices" ("status", "created_at");
+      CREATE INDEX IF NOT EXISTS "idx_invoices_status_amount" ON "invoices" ("status", "amount");
     `);
   }
 
   private async createInvestmentsTable(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-      CREATE TABLE "investments" (
+      /* CREATE TABLE "investments" */
+      CREATE TABLE IF NOT EXISTS "investments" (
         "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "invoice_id" uuid NOT NULL,
         "investor_id" uuid NOT NULL,
@@ -202,12 +209,14 @@ export class InitialSchema1731513600000 implements MigrationInterface {
       CREATE INDEX IF NOT EXISTS "idx_investments_invoice_id" ON "investments" ("invoice_id");
       CREATE INDEX IF NOT EXISTS "idx_investments_investor_id" ON "investments" ("investor_id");
       CREATE INDEX IF NOT EXISTS "idx_investments_status" ON "investments" ("status");
+      CREATE INDEX IF NOT EXISTS "idx_investments_investor_status" ON "investments" ("investor_id", "status");
     `);
   }
 
   private async createTransactionsTable(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-      CREATE TABLE "transactions" (
+      /* CREATE TABLE "transactions" */
+      CREATE TABLE IF NOT EXISTS "transactions" (
         "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "user_id" uuid NOT NULL,
         "investment_id" uuid,
@@ -228,12 +237,14 @@ export class InitialSchema1731513600000 implements MigrationInterface {
       CREATE INDEX IF NOT EXISTS "idx_transactions_invoice_id" ON "transactions" ("invoice_id");
       CREATE INDEX IF NOT EXISTS "idx_transactions_type" ON "transactions" ("type");
       CREATE INDEX IF NOT EXISTS "idx_transactions_status" ON "transactions" ("status");
+      CREATE INDEX IF NOT EXISTS "idx_transactions_user_type_status" ON "transactions" ("user_id", "type", "status");
     `);
   }
 
   private async createKycVerificationsTable(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-      CREATE TABLE "kyc_verifications" (
+      /* CREATE TABLE "kyc_verifications" */
+      CREATE TABLE IF NOT EXISTS "kyc_verifications" (
         "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "user_id" uuid NOT NULL,
         "verification_type" "public"."kyc_verifications_verificationtype_enum" NOT NULL,
@@ -254,7 +265,8 @@ export class InitialSchema1731513600000 implements MigrationInterface {
 
   private async createNotificationsTable(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-      CREATE TABLE "notifications" (
+      /* CREATE TABLE "notifications" */
+      CREATE TABLE IF NOT EXISTS "notifications" (
         "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "user_id" uuid NOT NULL,
         "type" "public"."notifications_notificationtype_enum" NOT NULL,

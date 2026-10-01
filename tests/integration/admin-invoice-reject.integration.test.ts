@@ -102,7 +102,7 @@ function noopIpfsService(): IPFSService {
 
 function seedPendingInvoice(repo: InMemoryInvoiceRepository, sellerId: string): Invoice {
   const now = new Date();
-  const invoice: Invoice = {
+  const invoice = {
     id: crypto.randomUUID(),
     sellerId,
     invoiceNumber: `INV-${crypto.randomBytes(4).toString("hex")}`,
@@ -122,7 +122,7 @@ function seedPendingInvoice(repo: InMemoryInvoiceRepository, sellerId: string): 
     seller: { id: sellerId, stellarAddress: "GTEST" } as unknown as Invoice["seller"],
     investments: [],
     transactions: [],
-  } as Invoice;
+  } as unknown as Invoice;
 
   repo.save(invoice);
   return invoice;

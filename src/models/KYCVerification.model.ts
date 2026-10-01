@@ -29,6 +29,16 @@ export class KYCVerification {
   @Column({ type: "jsonb", nullable: true })
   documents!: Record<string, unknown> | null;
 
+  /**
+   * Stellar wallet (public key) of the wallet that submitted the verification.
+   * Populated by the authenticated seller KYC submission flow so duplicate
+   * checks and audits can key off the submitting wallet rather than the
+   * internal user id.
+   */
+  @Column({ name: "wallet", type: "varchar", length: 56, nullable: true })
+  @Index("idx_kyc_verifications_wallet")
+  wallet!: string | null;
+
   @Column({ name: "verified_at", type: "timestamptz", nullable: true })
   verifiedAt!: Date | null;
 

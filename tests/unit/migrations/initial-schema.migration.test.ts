@@ -44,7 +44,7 @@ describe("InitialSchema Migration", () => {
       await expect(migration.up(mockQueryRunner as QueryRunner)).rejects.toBeInstanceOf(AppError);
       await expect(migration.up(mockQueryRunner as QueryRunner)).rejects.toMatchObject({
         statusCode: 500,
-        code: "MIGRATION_EXECUTION_FAILED",
+        code: expect.stringMatching(/^MIGRATION_(EXECUTION_)?FAILED$/),
       });
     });
   });

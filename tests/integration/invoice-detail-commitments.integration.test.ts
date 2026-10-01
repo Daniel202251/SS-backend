@@ -65,7 +65,7 @@ function createInvoice(overrides: Partial<Invoice> = {}): Invoice {
     investments: [],
     transactions: [],
     ...overrides,
-  } as Invoice;
+  } as unknown as Invoice;
 }
 
 function createInvestment(invoiceId: string, investorWallet: string, amount: string): Investment {
@@ -85,7 +85,7 @@ function createInvestment(invoiceId: string, investorWallet: string, amount: str
     invoice: undefined as unknown as Investment["invoice"],
     investor: undefined as unknown as Investment["investor"],
     transactions: [],
-  } as Investment;
+  } as unknown as Investment;
 }
 
 describe("Invoice detail endpoint: investor commitments with share percentages", () => {

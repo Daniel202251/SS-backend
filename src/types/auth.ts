@@ -9,8 +9,10 @@ export interface PublicUser {
   userType: UserType;
   kycStatus: KYCStatus;
   isKycVerified?: boolean;
+  isSuspended?: boolean;
   createdAt: Date;
   updatedAt: Date;
+  role?: "admin" | "user";
 }
 
 // Existing user type

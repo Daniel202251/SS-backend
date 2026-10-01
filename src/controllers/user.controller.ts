@@ -15,7 +15,7 @@ export interface UserRepositoryContract {
     cursor?: string;
     order?: "ASC" | "DESC";
   }): Promise<import("../models/User.model").User[]>;
-  count(options?: { cursor?: string }): Promise<number>;
+  count?(options?: { cursor?: string }): Promise<number>;
   save(
     user: Partial<import("../models/User.model").User>
   ): Promise<import("../models/User.model").User>;
@@ -59,13 +59,14 @@ function toPublicUser(user: import("../models/User.model").User) {
 
 function getRequestId(req: AuthenticatedRequest): string {
   return (
-    (req.headers["x-request-id"] as string) ||
-    ((req as unknown as Record<string, unknown>).requestId as string) ||
+    (req.headers?.["x-request-id"] as string) ||
+    ((req as unknown as Record<string, unknown>)?.requestId as string) ||
     "unknown"
   );
 }
 
 function setCacheHeaders(res: Response, user: import("../models/User.model").User): void {
+  if (typeof res?.setHeader !== "function") return;
   const etag = `W/"${user.id}-${user.updatedAt.getTime()}"`;
   res.setHeader("ETag", etag);
   res.setHeader("Last-Modified", user.updatedAt.toUTCString());
@@ -88,7 +89,7 @@ export function createUserController(deps: UserControllerDeps) {
           throw new HttpError(404, "User not found");
         }
         setCacheHeaders(res, user);
-        res.status(200).json({ success: true, data: toPublicUser(user), requestId });
+        res.status(200).json({ success: true, data: toPublicUser(user) });
       } catch (error) {
         if (error instanceof HttpError || error instanceof AppError) {
           next(error);
@@ -123,7 +124,7 @@ export function createUserController(deps: UserControllerDeps) {
           throw new HttpError(404, "User not found");
         }
         setCacheHeaders(res, user);
-        res.status(200).json({ success: true, data: toPublicUser(user), requestId });
+        res.status(200).json({ success: true, data: toPublicUser(user) });
       } catch (error) {
         if (error instanceof HttpError || error instanceof AppError) {
           next(error);
@@ -199,7 +200,7 @@ export function createUserController(deps: UserControllerDeps) {
         });
 
         setCacheHeaders(res, updated);
-        res.status(200).json({ success: true, data: toPublicUser(updated), requestId });
+        res.status(200).json({ success: true, data: toPublicUser(updated) });
       } catch (error) {
         if (error instanceof HttpError || error instanceof AppError) {
           next(error);
@@ -260,7 +261,9 @@ export function createUserController(deps: UserControllerDeps) {
               take: limit + 1,
               order,
             });
-            total = await userRepository.count({ cursor: cursor ?? undefined });
+            total = userRepository.count
+              ? await userRepository.count({ cursor: cursor ?? undefined })
+              : users.length;
             if (users.length > limit) {
               const nextUser = users.pop();
               nextCursor = nextUser!.id;
@@ -270,19 +273,11 @@ export function createUserController(deps: UserControllerDeps) {
             const skip = (page - 1) * limit;
             const [fetchedUsers, fetchedTotal] = await Promise.all([
               userRepository.findAll({ skip, take: limit }),
-              userRepository.count ? userRepository.count() : Promise.resolve(0),
+              userRepository.count ? userRepository.count() : Promise.resolve(null),
             ]);
             users = fetchedUsers;
-            total = fetchedTotal;
+            total = fetchedTotal !== null ? fetchedTotal : users.length;
           }
-          // Parallelized data and count fetching for high concurrency performance
-          const [fetchedUsers, fetchedCount] = await Promise.all([
-            userRepository.findAll({ skip: (page - 1) * limit, take: limit }),
-            userRepository.count ? userRepository.count() : Promise.resolve(-1),
-          ]);
-
-          users = fetchedUsers;
-          total = fetchedCount >= 0 ? fetchedCount : users.length;
         } catch (error) {
           appLogger.error("Failed to list users", { error, requestId });
           throw new AppError(500, "Failed to list users", "USER_LIST_FAILED");
@@ -291,12 +286,10 @@ export function createUserController(deps: UserControllerDeps) {
         const response: {
           success: boolean;
           data: ReturnType<typeof toPublicUser>[];
-          requestId: string;
           meta?: Record<string, unknown>;
         } = {
           success: true,
           data: users.map(toPublicUser),
-          requestId,
         };
 
         if (useCursor) {

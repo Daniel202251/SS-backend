@@ -50,7 +50,7 @@ export class Investment {
 
   /** Stellar address the investment was made from. */
   @Column({ name: "investor_wallet", type: "varchar", length: 56, nullable: true })
-  investorWallet!: string | null;
+  investorWallet?: string | null;
 
   /**
    * Ledger the investment belongs to; with investorWallet it makes a
@@ -58,7 +58,7 @@ export class Investment {
    * bigint columns are returned as strings.
    */
   @Column({ name: "funding_block", type: "bigint", nullable: true })
-  fundingBlock!: string | null;
+  fundingBlock?: string | null;
 
   @Column({ name: "transaction_hash", type: "varchar", length: 64, nullable: true })
   transactionHash!: string | null;
@@ -87,5 +87,7 @@ export class Investment {
   investor!: User;
 
   @OneToMany("Transaction", "investment")
-  transactions!: import("./Transaction.model").Transaction[];
+  transactions?: import("./Transaction.model").Transaction[];
+
+  investorReturns?: import("./InvestorReturn.model").InvestorReturn[];
 }
