@@ -51,6 +51,8 @@ export interface PublicInvoiceDTO {
   sellerId: string;
   invoiceNumber: string;
   customerName: string;
+  issuerName: string | null;
+  description: string | null;
   amount: string;
   discountRate: string;
   netAmount: string;
@@ -61,7 +63,6 @@ export interface PublicInvoiceDTO {
   smartContractId: string | null;
   rejectionReason: string | null;
   title?: string | null;
-  description?: string | null;
   faceValue?: string | null;
   fundingTarget?: string | null;
   yieldBps?: number | null;
@@ -92,6 +93,14 @@ export class Invoice {
   @Column({ name: "customer_name", type: "varchar", length: 255 })
   @Index("idx_invoices_customer_name")
   customerName!: string;
+
+  /** Business issuing the invoice; full-text searchable (weight A). */
+  @Column({ name: "issuer_name", type: "varchar", length: 255, nullable: true })
+  issuerName!: string | null;
+
+  /** Free-text description; full-text searchable (weight B). */
+  @Column({ type: "text", nullable: true })
+  description!: string | null;
 
   @Column({ type: "decimal", precision: 18, scale: 4, default: 0 })
   amount!: string;
@@ -144,9 +153,6 @@ export class Invoice {
 
   @Column({ type: "varchar", length: 255, nullable: true })
   title!: string | null;
-
-  @Column({ type: "text", nullable: true })
-  description!: string | null;
 
   @Column({ name: "face_value", type: "decimal", precision: 18, scale: 4, nullable: true })
   faceValue!: string | null;
@@ -742,6 +748,8 @@ export class Invoice {
         sellerId: invoice.sellerId,
         invoiceNumber: invoice.invoiceNumber,
         customerName: invoice.customerName,
+        issuerName: invoice.issuerName ?? null,
+        description: invoice.description ?? null,
         amount: invoice.amount,
         discountRate: invoice.discountRate,
         netAmount: invoice.netAmount,

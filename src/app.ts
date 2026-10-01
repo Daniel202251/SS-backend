@@ -52,6 +52,7 @@ import type { AdminSettlementService } from "./services/admin-settlement.service
 import type { MarketplaceService } from "./services/marketplace.service";
 import type { SellerService } from "./services/seller.service";
 import type { KycService } from "./services/kyc.service";
+import type { InvoiceSearchService } from "./services/invoice-search.service";
 import type { InvestorAcknowledgementService } from "./services/investor-acknowledgement.service";
 import type { InvoiceExtensionService } from "./services/invoice-extension.service";
 import type { AdminMetricsService } from "./services/admin-metrics.service";
@@ -130,6 +131,7 @@ export interface AppDependencies {
   marketplaceService?: MarketplaceService;
   sellerService?: SellerService;
   kycService?: KycService;
+  invoiceSearchService?: InvoiceSearchService;
   ratingsLeaderboardService?: RatingsLeaderboardService;
   dividendCycleService?: DividendCycleService;
   dividendDistributionService?: DividendDistributionService;
@@ -175,6 +177,7 @@ export function createApp({
   marketplaceService,
   sellerService,
   kycService,
+  invoiceSearchService,
   ratingsLeaderboardService,
   dividendCycleService,
   dividendDistributionService,
@@ -323,6 +326,7 @@ export function createApp({
       authService,
       contractGuardService,
       contractId: pauseGuardContractId,
+      invoiceSearchService,
       extensionService,
     });
     app.use("/api/v1/invoices", invoiceRouter);

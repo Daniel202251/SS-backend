@@ -30,6 +30,7 @@ import { createInvestmentService } from "./services/investment.service";
 import { createSettlementService } from "./services/settlement.service";
 import { createAdminSettlementService } from "./services/admin-settlement.service";
 import { createMarketplaceService } from "./services/marketplace.service";
+import { createInvoiceSearchService } from "./services/invoice-search.service";
 import { KycService } from "./services/kyc.service";
 import { PaymentDistributorContractService } from "./services/stellar/payment-distributor-contract.service";
 import { createOnchainProjections } from "./services/onchain-projections.service";
@@ -169,6 +170,7 @@ export async function bootstrap(): Promise<{
     adminSettlementService,
     marketplaceService,
     kycService,
+    invoiceSearchService: createInvoiceSearchService(dataSource),
     ratingsLeaderboardService,
     dividendCycleService,
     secondaryMarketService,
