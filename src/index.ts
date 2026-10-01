@@ -30,11 +30,14 @@ import { createInvestmentService } from "./services/investment.service";
 import { createSettlementService } from "./services/settlement.service";
 import { createAdminSettlementService } from "./services/admin-settlement.service";
 import { createMarketplaceService } from "./services/marketplace.service";
+import { createInvoiceSearchService } from "./services/invoice-search.service";
+import { createAdminUserService } from "./services/admin-user.service";
 import { KycService } from "./services/kyc.service";
 import { PaymentDistributorContractService } from "./services/stellar/payment-distributor-contract.service";
 import { createOnchainProjections } from "./services/onchain-projections.service";
 import { InvoiceEscrowContractService } from "./services/stellar/invoice-escrow-contract.service";
 import { getSorobanConfig } from "./config/stellar";
+import { createInvoiceMaturityWorker, SettlementEventBus } from "./workers/invoice-maturity.worker";
 import { createRatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import { createDividendCycleService } from "./services/dividend-cycle.service";
 import { createOnboardingService } from "./services/onboarding.service";
@@ -45,7 +48,10 @@ import { createWatchlistService } from "./services/watchlist.service";
 import { createSettlementWorker } from "./workers/settlement.worker";
 import { scheduleAnalyticsSnapshotJob } from "./workers/analytics-snapshot.worker";
 
-export async function bootstrap(): Promise<{ server: Server }> {
+export async function bootstrap(): Promise<{
+  server: Server;
+  settlementEvents: SettlementEventBus;
+}> {
   const config = getConfig();
 
   if (!dataSource.isInitialized) {
@@ -186,6 +192,8 @@ export async function bootstrap(): Promise<{ server: Server }> {
     adminSettlementService,
     marketplaceService,
     kycService,
+    invoiceSearchService: createInvoiceSearchService(dataSource),
+    adminUserService: createAdminUserService(dataSource, logger),
     ratingsLeaderboardService,
     dividendCycleService,
     dividendDistributionService: projections.dividendDistributionService,
@@ -209,19 +217,32 @@ export async function bootstrap(): Promise<{ server: Server }> {
     logger.info("Server running", { port: config.port });
   });
 
+  // Settlement outcomes for notification dispatch; the state machine effects
+  // above already notify sellers and investors of each status change.
+  const settlementEvents = new SettlementEventBus();
+  const maturityWorker = createInvoiceMaturityWorker(
+    dataSource,
+    settlementService,
+    invoiceStateMachine,
+    settlementEvents,
+    config.maturity,
+    logger
+  );
+  maturityWorker.start();
+
   // ---- Start daily analytics snapshot cron (midnight UTC) ----
   const snapshotScheduler = scheduleAnalyticsSnapshotJob(dataSource);
 
   // ---- Start settlement worker cron (hourly) ----
   settlementWorker.start("0 * * * *");
 
-  // Stop schedulers on server close
   server.on("close", () => {
+    void maturityWorker.stop();
     snapshotScheduler.stop();
     settlementWorker.stop();
   });
 
-  return { server };
+  return { server, settlementEvents };
 }
 
 if (require.main === module) {

@@ -6,6 +6,7 @@ export enum UserType {
   SELLER = "seller",
   INVESTOR = "investor",
   BOTH = "both",
+  ADMIN = "admin",
 }
 
 /** Roles accepted by the administrative endpoints. */
@@ -29,6 +30,8 @@ export enum InvoiceStatus {
   SETTLED = "settled",
   CANCELLED = "cancelled",
   REJECTED = "rejected",
+  /** Reached maturity without being fully funded. */
+  FAILED = "failed",
 }
 
 export enum InvestmentStatus {

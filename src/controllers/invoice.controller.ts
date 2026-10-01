@@ -18,6 +18,8 @@ export interface CreateInvoiceRequest extends AuthenticatedRequest {
   body: {
     invoiceNumber: string;
     customerName: string;
+    issuerName?: string;
+    description?: string;
     amount: string;
     discountRate: string;
     dueDate: string;
@@ -32,6 +34,8 @@ export interface UpdateInvoiceRequest extends AuthenticatedRequest {
   };
   body: {
     customerName?: string;
+    issuerName?: string;
+    description?: string;
     amount?: string;
     discountRate?: string;
     dueDate?: string;
@@ -92,13 +96,24 @@ export function createInvoiceController(
           throw new HttpError(401, "Authentication required");
         }
 
-        const { invoiceNumber, customerName, amount, discountRate, dueDate, ipfsHash, riskScore } =
-          req.body;
+        const {
+          invoiceNumber,
+          customerName,
+          issuerName,
+          description,
+          amount,
+          discountRate,
+          dueDate,
+          ipfsHash,
+          riskScore,
+        } = req.body;
 
         const result = await invoiceService.createInvoice({
           sellerId: req.user.id,
           invoiceNumber,
           customerName,
+          issuerName,
+          description,
           amount,
           discountRate,
           dueDate: new Date(dueDate),
@@ -327,12 +342,15 @@ export function createInvoiceController(
         }
 
         const { id } = req.params;
-        const { customerName, amount, discountRate, dueDate, riskScore } = req.body;
+        const { customerName, issuerName, description, amount, discountRate, dueDate, riskScore } =
+          req.body;
 
         const result = await invoiceService.updateInvoice({
           sellerId: req.user.id,
           invoiceId: id,
           customerName,
+          issuerName,
+          description,
           amount,
           discountRate,
           dueDate: dueDate ? new Date(dueDate) : undefined,

@@ -56,6 +56,11 @@ export interface AppConfig {
     gracePeriodMs: number;
     maxRuntimeMs: number;
   };
+  maturity: {
+    enabled: boolean;
+    intervalMs: number;
+    batchSize: number;
+  };
   stellar: {
     network: SupportedStellarNetwork;
     networkPassphrase: string;
@@ -111,6 +116,10 @@ const DEFAULT_RECONCILIATION_INTERVAL_MS = 30 * 1000;
 const DEFAULT_RECONCILIATION_BATCH_SIZE = 25;
 const DEFAULT_RECONCILIATION_GRACE_PERIOD_MS = 60 * 1000;
 const DEFAULT_RECONCILIATION_MAX_RUNTIME_MS = 10 * 1000;
+
+const DEFAULT_MATURITY_ENABLED = true;
+const DEFAULT_MATURITY_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_MATURITY_BATCH_SIZE = 50;
 
 const DEFAULT_BODY_SIZE_LIMIT = "1mb";
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15 * 1000;
@@ -362,6 +371,24 @@ export function getConfig(): AppConfig {
         process.env.STELLAR_RECONCILIATION_MAX_RUNTIME_MS,
         DEFAULT_RECONCILIATION_MAX_RUNTIME_MS,
         "STELLAR_RECONCILIATION_MAX_RUNTIME_MS"
+      ),
+    },
+
+    maturity: {
+      enabled: parseBoolean(
+        process.env.INVOICE_MATURITY_JOB_ENABLED,
+        DEFAULT_MATURITY_ENABLED,
+        "INVOICE_MATURITY_JOB_ENABLED"
+      ),
+      intervalMs: parsePositiveInteger(
+        process.env.INVOICE_MATURITY_JOB_INTERVAL_MS,
+        DEFAULT_MATURITY_INTERVAL_MS,
+        "INVOICE_MATURITY_JOB_INTERVAL_MS"
+      ),
+      batchSize: parsePositiveInteger(
+        process.env.INVOICE_MATURITY_JOB_BATCH_SIZE,
+        DEFAULT_MATURITY_BATCH_SIZE,
+        "INVOICE_MATURITY_JOB_BATCH_SIZE"
       ),
     },
 
