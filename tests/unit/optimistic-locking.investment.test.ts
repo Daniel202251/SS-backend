@@ -152,6 +152,12 @@ describe("Investment optimistic locking concurrency (issue #143)", () => {
       getRepository: jest.fn((entity: any) => {
         if (entity === Invoice) return mockInvoiceRepository;
         if (entity === Investment) return mockInvestmentRepository;
+        if (entity?.name === "InvestorAcknowledgement") {
+          return {
+            findOne: jest.fn().mockResolvedValue({ walletAddress: "test", termsVersion: "1", acknowledgedAt: new Date() }),
+            find: jest.fn().mockResolvedValue([]),
+          };
+        }
         return {};
       }),
       transaction: jest.fn().mockImplementation(async (callback: any) => {

@@ -95,8 +95,10 @@ export interface ChallengeResponse {
 }
 
 export interface VerifyChallengeInput {
-  publicKey: string;
-  nonce: string;
+  publicKey?: string;
+  wallet?: string;
+  nonce?: string;
+  challenge?: string;
   signature: string;
   ipAddress?: string;
 }
@@ -223,8 +225,16 @@ export class AuthService {
 
   async verifyChallenge(input: VerifyChallengeInput): Promise<VerifyChallengeResponse> {
     try {
-      const sanitizedKey = this.assertValidPublicKey(input.publicKey);
-      const sanitizedNonce = this.assertNonEmptyString(input.nonce, "nonce").trim();
+      const rawKey = input.publicKey ?? input.wallet;
+      if (!rawKey) {
+        throw new HttpError(400, "publicKey or wallet is required.");
+      }
+      const sanitizedKey = this.assertValidPublicKey(rawKey);
+      const rawNonce = input.nonce ?? input.challenge;
+      if (!rawNonce) {
+        throw new HttpError(400, "nonce or challenge is required.");
+      }
+      const sanitizedNonce = this.assertNonEmptyString(rawNonce, "nonce").trim();
       const sanitizedSig = this.assertNonEmptyString(input.signature, "signature").trim();
 
       if (sanitizedNonce.length < MIN_NONCE_LENGTH) {
@@ -431,7 +441,6 @@ export class AuthService {
         });
         throw new HttpError(500, "Failed to fetch current user.");
       }
-
       if (!user) {
         throw new HttpError(
           401,
@@ -486,12 +495,13 @@ export class AuthService {
    * the same address are coalesced into a single repository round-trip via
    * {@link userUpsertInflight}.
    */
-  private upsertUser(publicKey: string): Promise<User> {
+  private async upsertUser(publicKey: string): Promise<User> {
+    const sanitized = publicKey.trim();
+
     const cached = this.userUpsertInflight.get(publicKey);
     if (cached) return cached;
 
     const promise = (async () => {
-      const sanitized = publicKey.trim();
       try {
         const existingUser = await this.userRepository.findByStellarAddress(sanitized);
         if (existingUser) {
@@ -532,15 +542,16 @@ export class AuthService {
 
     return jwt.sign(
       {
+        sub: user.stellarAddress,
         stellarAddress: user.stellarAddress,
+        wallet: user.stellarAddress,
         walletAddress: user.stellarAddress,
+        role: user.userType,
+        userType: user.userType,
         userId: user.id,
       },
       this.config.jwt.secret,
-      {
-        ...signOptions,
-        subject: user.stellarAddress,
-      }
+      signOptions
     );
   }
 
@@ -791,6 +802,7 @@ export function toPublicUser(user: User): PublicUser {
     userType: user.userType,
     kycStatus: user.kycStatus,
     isKycVerified: user.isKycVerified,
+    isSuspended: user.isSuspended,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };

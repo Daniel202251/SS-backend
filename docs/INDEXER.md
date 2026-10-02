@@ -45,6 +45,32 @@ Topics related to distributing yields or payments:
 - `["payment", "failed"]`: Triggered when a specific payment fails.
   - Data: `Recipient`, `Amount`, `Error Code`
 
+### 4. Integration ACL, creator keys, curve migrations and atomic swaps
+
+Topics consumed by the read models exposed under `/api/v1/keys`, `/api/v1/swaps` and
+`/api/v1/admin/acl`. Each topic is handled by a `ContractEventHandler` registered on
+`ContractEventBus` (see `src/services/contract-event-bus.service.ts`), which
+`EventIndexerService` dispatches to after the event is logged. A handler failure is
+logged and skipped, so one bad projection never blocks the rest of the pipeline.
+
+- `["key_config_updated", key_id]`: new per-key buy caps and supply. Updates
+  `creator_keys` and invalidates the 60s buy-limit cache.
+- `["acl_updated", contract_address]`: whitelists (`action: "add"`, with
+  `permitted_functions`) or removes (`action: "remove"`) an integration contract.
+  Upserts `contract_acls`, appends to `contract_acl_logs`, and invalidates the 5m
+  ACL cache.
+- `["curve_migration_proposed", key_id, proposal_id]`: a bonding-curve migration
+  proposal with its parameters and timelock. Recorded as `pending` until the
+  matching execution event arrives.
+- `["curve_migration_executed", proposal_id]`: applies the migration, stamps
+  `executed_at` and applied parameters, and emits an admin notification.
+- `["atomic_swap_executed", buyer, seller, swap_id]`: a direct invoice-for-invoice
+  exchange. Records both sides, both amounts, and the fee, indexed by buyer and by
+  seller.
+
+Projections are idempotent on their on-chain identifier, so replaying a ledger range
+cannot create duplicate rows.
+
 ## Last-Synced Ledger Checkpointing
 
 To ensure no events are missed and to prevent processing duplicate events, the indexer relies on a checkpointing mechanism:

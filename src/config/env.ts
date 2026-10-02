@@ -56,10 +56,10 @@ export interface AppConfig {
     gracePeriodMs: number;
     maxRuntimeMs: number;
   };
-  sorobanIndexer: {
+  maturity: {
     enabled: boolean;
     intervalMs: number;
-    lagAlertThresholdLedgers: number;
+    batchSize: number;
   };
   stellar: {
     network: SupportedStellarNetwork;
@@ -88,7 +88,10 @@ export interface AppConfig {
   };
   admin: {
     ipWhitelist: string[];
+    wallets: string[];
   };
+  /** Investor accreditation terms version (issue #473). Bumping forces re-ack. */
+  termsVersion: string;
   cache: {
     redisUrl?: string;
     invoicesListTtlSeconds: number;
@@ -115,6 +118,10 @@ const DEFAULT_RECONCILIATION_GRACE_PERIOD_MS = 60 * 1000;
 const DEFAULT_RECONCILIATION_MAX_RUNTIME_MS = 10 * 1000;
 const DEFAULT_SOROBAN_INDEXER_INTERVAL_MS = 10 * 1000;
 const DEFAULT_SOROBAN_INDEXER_LAG_THRESHOLD_LEDGERS = 1000;
+
+const DEFAULT_MATURITY_ENABLED = true;
+const DEFAULT_MATURITY_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_MATURITY_BATCH_SIZE = 50;
 
 const DEFAULT_BODY_SIZE_LIMIT = "1mb";
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15 * 1000;
@@ -369,21 +376,21 @@ export function getConfig(): AppConfig {
       ),
     },
 
-    sorobanIndexer: {
+    maturity: {
       enabled: parseBoolean(
-        process.env.SOROBAN_EVENT_INDEXER_ENABLED,
-        false,
-        "SOROBAN_EVENT_INDEXER_ENABLED"
+        process.env.INVOICE_MATURITY_JOB_ENABLED,
+        DEFAULT_MATURITY_ENABLED,
+        "INVOICE_MATURITY_JOB_ENABLED"
       ),
       intervalMs: parsePositiveInteger(
-        process.env.SOROBAN_EVENT_INDEXER_INTERVAL_MS,
-        DEFAULT_SOROBAN_INDEXER_INTERVAL_MS,
-        "SOROBAN_EVENT_INDEXER_INTERVAL_MS"
+        process.env.INVOICE_MATURITY_JOB_INTERVAL_MS,
+        DEFAULT_MATURITY_INTERVAL_MS,
+        "INVOICE_MATURITY_JOB_INTERVAL_MS"
       ),
-      lagAlertThresholdLedgers: parsePositiveInteger(
-        process.env.SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS,
-        DEFAULT_SOROBAN_INDEXER_LAG_THRESHOLD_LEDGERS,
-        "SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS"
+      batchSize: parsePositiveInteger(
+        process.env.INVOICE_MATURITY_JOB_BATCH_SIZE,
+        DEFAULT_MATURITY_BATCH_SIZE,
+        "INVOICE_MATURITY_JOB_BATCH_SIZE"
       ),
     },
 
@@ -433,7 +440,10 @@ export function getConfig(): AppConfig {
 
     admin: {
       ipWhitelist: parseCsv(process.env.ADMIN_IP_WHITELIST),
+      wallets: parseCsv(process.env.ADMIN_WALLETS),
     },
+
+    termsVersion: (process.env.TERMS_VERSION?.trim() || "1"),
 
     cache: {
       redisUrl: process.env.REDIS_URL || undefined,

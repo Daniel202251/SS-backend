@@ -111,6 +111,12 @@ All application routes use the `/api/v1` prefix.
 - `/api/v1/investments` — investment creation and history
 - `/api/v1/settlements` — settlement operations
 - `/api/v1/notifications` — user notifications
+- `/api/v1/keys` — creator key config, per-transaction buy limit, and curve migration status
+- `/api/v1/swaps` — atomic swap history and lookup
+- `/api/v1/royalties` — creator royalty earnings, per-transfer breakdown and claim history
+- `/api/v1/dividends` — issuer cycle config plus holder claimable balances, claim history and summary
+- `/api/v1/subscriptions` — public gated-content subscription status (`?wallet=&key_id=`)
+- `/api/v1/onboarding` — onboarding tour completion state
 - `/api/v1/admin` — allowlisted administrative operations
 
 The checked-in OpenAPI contract is [`docs/openapi.json`](./docs/openapi.json).

@@ -15,8 +15,19 @@ export interface InvoiceSubmittedEventPayload {
   submittedAt: Date;
 }
 
+export interface CurveMigrationExecutedEventPayload {
+  migrationId: string;
+  keyId: string;
+  contractAddress: string;
+  status: string;
+  timelockExpiry: string | null;
+  appliedParams: Record<string, unknown> | null;
+  executedAt: string | null;
+}
+
 export interface AdminNotificationQueueEvents {
   invoice_submitted: InvoiceSubmittedEventPayload;
+  curve_migration_executed: CurveMigrationExecutedEventPayload;
   [key: string]: unknown;
 }
 

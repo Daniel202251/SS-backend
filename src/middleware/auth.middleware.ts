@@ -17,9 +17,10 @@ import {
 interface AuthTokenPayload {
   sub: string;
   stellarAddress: string;
-  userId?: string;
-  userType?: UserType;
+  wallet?: string;
   role?: UserType;
+  userType?: UserType;
+  userId?: string;
 }
 
 /**
@@ -87,18 +88,21 @@ export function extractBearerToken(header: unknown): BearerTokenResult {
   return { ok: true, token };
 }
 
-function missingOrMalformedTokenError(result: Extract<BearerTokenResult, { ok: false }>) {
+function missingOrMalformedTokenError(
+  result: Extract<BearerTokenResult, { ok: false }>,
+  appLogger?: AppLogger
+) {
   if (result.reason === "missing_token") {
     return new HttpError(
       401,
       "Authorization token is required.",
-      buildAuthFailureDetails(undefined, "missing_token")
+      buildAuthFailureDetails(undefined, "missing_token", appLogger)
     );
   }
   return new HttpError(
     401,
     "Invalid or expired token.",
-    buildAuthFailureDetails(result.token, result.reason)
+    buildAuthFailureDetails(result.token, result.reason, appLogger)
   );
 }
 
@@ -136,10 +140,15 @@ export function createAuthMiddleware(
     const startedAt = Date.now();
 
     try {
-      req.user = await withTimeout(
+      const user = await withTimeout(
         Promise.resolve().then(() => authService.getCurrentUser(token)),
         timeoutMs
       );
+      if (user.isSuspended) {
+        next(new AppError(403, "This account has been suspended.", "ACCOUNT_SUSPENDED"));
+        return;
+      }
+      req.user = user;
       next();
     } catch (error) {
       if (error instanceof HttpError || error instanceof AppError) {
@@ -242,12 +251,12 @@ export function authenticateJWT(req: Request, _res: Response, next: NextFunction
     return;
   }
 
-  const { userId, stellarAddress, userType, role } = claims as Partial<AuthTokenPayload>;
+  const { userId, stellarAddress, wallet, userType, role } = claims as Partial<AuthTokenPayload>;
 
   (req as AuthenticatedRequest).user = {
     id: nonEmptyString(userId) ?? subject,
     // Tokens are issued with the wallet address as subject.
-    stellarAddress: nonEmptyString(stellarAddress) ?? subject,
+    stellarAddress: nonEmptyString(wallet) ?? nonEmptyString(stellarAddress) ?? subject,
     email: null,
     userType: userType || role || (null as unknown as UserType),
     kycStatus: null as unknown as KYCStatus,
@@ -257,6 +266,22 @@ export function authenticateJWT(req: Request, _res: Response, next: NextFunction
   };
 
   next();
+}
+
+export function requireRole(allowedRoles: UserType[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user) {
+      return next(new HttpError(401, "Authentication required"));
+    }
+
+    const role = authReq.user.userType;
+    if (!role || (!allowedRoles.includes(role) && role !== UserType.BOTH)) {
+      return next(new HttpError(403, "Access forbidden for this user role"));
+    }
+
+    next();
+  };
 }
 
 export function requireKYC(skipVerification = false) {
@@ -292,4 +317,62 @@ export function checkKycVerified(req: Request, _res: Response, next: NextFunctio
     return;
   }
   next();
+}
+
+export function requireSeller() {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user) {
+      next(new HttpError(401, "Authentication required."));
+      return;
+    }
+
+    if (
+      authReq.user.userType !== UserType.SELLER &&
+      authReq.user.userType !== UserType.BOTH
+    ) {
+      next(new HttpError(403, "Seller access required."));
+      return;
+    }
+
+    next();
+  };
+}
+
+export function requireAdmin(adminWallets: string[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
+      next(new HttpError(401, "Authentication required"));
+      return;
+    }
+
+    if (!adminWallets.includes(user.stellarAddress)) {
+      next(new AppError(403, "Admin privileges required", "ADMIN_REQUIRED"));
+      return;
+    }
+
+    next();
+  };
+}
+
+/** Requires an authenticated investor (or BOTH) account. */
+export function requireInvestor() {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user) {
+      next(new HttpError(401, "Authentication required."));
+      return;
+    }
+
+    if (
+      authReq.user.userType !== UserType.INVESTOR &&
+      authReq.user.userType !== UserType.BOTH
+    ) {
+      next(new HttpError(403, "Investor access required."));
+      return;
+    }
+
+    next();
+  };
 }

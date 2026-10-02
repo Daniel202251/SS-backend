@@ -8,6 +8,7 @@ import { Investment } from "../../models/Investment.model";
 import { SorobanIndexerCheckpoint } from "../../models/SorobanIndexerCheckpoint.model";
 import { InvestmentStatus, InvoiceStatus } from "../../types/enums";
 import type { DecodedSorobanEvent } from "../../types/soroban.types";
+import type { ContractEventBus } from "../contract-event-bus.service";
 
 export interface EventIndexerServiceDependencies {
   contractIds: string[];
@@ -19,7 +20,12 @@ export interface EventIndexerServiceDependencies {
   checkpointRepository?: Repository<SorobanIndexerCheckpoint>;
   invoiceRepository?: Repository<Invoice>;
   investmentRepository?: Repository<Investment>;
-  lagAlertThresholdLedgers?: number;
+  /**
+   * Optional fan-out for read-model projections derived from contract events
+   * (ACL, curve migrations, atomic swaps, key config). Omitting it preserves
+   * the previous behaviour exactly.
+   */
+  eventBus?: ContractEventBus;
 }
 
 export interface PollEventsOptions {
@@ -37,7 +43,7 @@ export class EventIndexerService {
   private readonly checkpointRepository?: Repository<SorobanIndexerCheckpoint>;
   private readonly invoiceRepository?: Repository<Invoice>;
   private readonly investmentRepository?: Repository<Investment>;
-  private readonly lagAlertThresholdLedgers: number;
+  private readonly eventBus?: ContractEventBus;
   private intervalHandle: NodeJS.Timeout | null = null;
   private lastIndexedLedger = 0;
   private latestLedgerSeen = 0;
@@ -52,7 +58,7 @@ export class EventIndexerService {
     this.contractIds = dependencies.contractIds;
     this.logger = dependencies.logger ?? globalLogger;
     this.dataSource = dependencies.dataSource;
-    this.lagAlertThresholdLedgers = dependencies.lagAlertThresholdLedgers ?? 100;
+    this.eventBus = dependencies.eventBus;
 
     if (dependencies.server) {
       this.rpcServer = dependencies.server;
@@ -259,6 +265,13 @@ export class EventIndexerService {
 
         if (event.inSuccessfulContractCall) {
           await this.applyEventStateTransition(event);
+        }
+
+        // Fan out to the registered read-model projections (ACL, curve
+        // migrations, swaps, key config). Failures inside a handler are logged
+        // by the bus and never abort ingestion of the remaining events.
+        if (this.eventBus) {
+          await this.eventBus.dispatch(event);
         }
 
         if (this.eventLogRepository) {
