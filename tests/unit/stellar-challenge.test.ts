@@ -12,7 +12,7 @@ describe("buildWalletChallenge", () => {
     const { transaction, nonce } = buildWalletChallenge(
       walletKeypair.publicKey(),
       TESTNET_PASSPHRASE,
-      serverKeypair,
+      serverKeypair
     );
 
     expect(transaction).toBeInstanceOf(Transaction);
@@ -22,7 +22,9 @@ describe("buildWalletChallenge", () => {
     // Transaction must carry at least one ManageData operation named web_auth_domain
     const ops = transaction.operations;
     expect(ops.length).toBeGreaterThan(0);
-    const managedDataOp = ops.find((op) => op.type === "manageData" && op.name === "web_auth_domain");
+    const managedDataOp = ops.find(
+      (op) => op.type === "manageData" && op.name === "web_auth_domain"
+    );
     expect(managedDataOp).toBeDefined();
 
     // Transaction must be signed by the server keypair
@@ -33,20 +35,26 @@ describe("buildWalletChallenge", () => {
     const serverKeypair = Keypair.random();
 
     expect(() =>
-      buildWalletChallenge("NOT_A_VALID_STELLAR_ADDRESS", TESTNET_PASSPHRASE, serverKeypair),
+      buildWalletChallenge("NOT_A_VALID_STELLAR_ADDRESS", TESTNET_PASSPHRASE, serverKeypair)
     ).toThrow(HttpError);
 
-    expect(() =>
-      buildWalletChallenge("", TESTNET_PASSPHRASE, serverKeypair),
-    ).toThrow(HttpError);
+    expect(() => buildWalletChallenge("", TESTNET_PASSPHRASE, serverKeypair)).toThrow(HttpError);
   });
 
   it("produces a different nonce on each call", () => {
     const walletKeypair = Keypair.random();
     const serverKeypair = Keypair.random();
 
-    const first = buildWalletChallenge(walletKeypair.publicKey(), TESTNET_PASSPHRASE, serverKeypair);
-    const second = buildWalletChallenge(walletKeypair.publicKey(), TESTNET_PASSPHRASE, serverKeypair);
+    const first = buildWalletChallenge(
+      walletKeypair.publicKey(),
+      TESTNET_PASSPHRASE,
+      serverKeypair
+    );
+    const second = buildWalletChallenge(
+      walletKeypair.publicKey(),
+      TESTNET_PASSPHRASE,
+      serverKeypair
+    );
 
     expect(first.nonce).not.toBe(second.nonce);
     expect(first.transaction.toXDR()).not.toBe(second.transaction.toXDR());

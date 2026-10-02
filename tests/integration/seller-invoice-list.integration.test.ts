@@ -5,6 +5,9 @@ import { Invoice } from "../../src/models/Invoice.model";
 import { User } from "../../src/models/User.model";
 import { KYCVerification } from "../../src/models/KYCVerification.model";
 import { Notification } from "../../src/models/Notification.model";
+import { KycHistory } from "../../src/models/KycHistory.model";
+import { SecondaryListing } from "../../src/models/SecondaryListing.model";
+import { Watchlist } from "../../src/models/Watchlist.model";
 import { AuthChallenge } from "../../src/models/AuthChallenge.model";
 import { InvoiceStatus, UserType, KYCStatus } from "../../src/types/enums";
 import { createInvoiceService, InvoiceService } from "../../src/services/invoice.service";
@@ -36,6 +39,9 @@ describe("Seller invoice list integration: no cross-seller leakage", () => {
         Transaction,
         KYCVerification,
         Notification,
+        KycHistory,
+        SecondaryListing,
+        Watchlist,
         AuthChallenge,
       ],
       synchronize: true,
@@ -52,7 +58,7 @@ describe("Seller invoice list integration: no cross-seller leakage", () => {
         email: "sellerA@test.com",
         userType: UserType.SELLER,
         kycStatus: KYCStatus.APPROVED,
-      }),
+      })
     );
 
     sellerB = await userRepository.save(
@@ -61,7 +67,7 @@ describe("Seller invoice list integration: no cross-seller leakage", () => {
         email: "sellerB@test.com",
         userType: UserType.SELLER,
         kycStatus: KYCStatus.APPROVED,
-      }),
+      })
     );
 
     const invoiceRepository = dataSource.getRepository(Invoice);
@@ -81,7 +87,7 @@ describe("Seller invoice list integration: no cross-seller leakage", () => {
           netAmount: "950.0000",
           dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           ...overrides,
-        }),
+        })
       );
     }
 
@@ -99,7 +105,7 @@ describe("Seller invoice list integration: no cross-seller leakage", () => {
           netAmount: "1900.0000",
           dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           ...overrides,
-        }),
+        })
       );
     }
 
@@ -128,7 +134,7 @@ describe("Seller invoice list integration: no cross-seller leakage", () => {
 
     const sellerBInvoiceNumbers = ["INV-B-001", "INV-B-002"];
     expect(
-      result.invoices.some((invoice) => sellerBInvoiceNumbers.includes(invoice.invoiceNumber)),
+      result.invoices.some((invoice) => sellerBInvoiceNumbers.includes(invoice.invoiceNumber))
     ).toBe(false);
   });
 
@@ -144,7 +150,7 @@ describe("Seller invoice list integration: no cross-seller leakage", () => {
 
     const statuses = result.invoices.map((invoice) => invoice.status);
     expect(statuses).toEqual(
-      expect.arrayContaining([InvoiceStatus.DRAFT, InvoiceStatus.PUBLISHED, InvoiceStatus.FUNDED]),
+      expect.arrayContaining([InvoiceStatus.DRAFT, InvoiceStatus.PUBLISHED, InvoiceStatus.FUNDED])
     );
   });
 
@@ -164,7 +170,7 @@ describe("Seller invoice list integration: no cross-seller leakage", () => {
 
     const statuses = result.invoices.map((invoice) => invoice.status);
     expect(statuses).toEqual(
-      expect.arrayContaining([InvoiceStatus.PUBLISHED, InvoiceStatus.SETTLED]),
+      expect.arrayContaining([InvoiceStatus.PUBLISHED, InvoiceStatus.SETTLED])
     );
   });
 });

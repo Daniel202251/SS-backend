@@ -19,9 +19,10 @@ export function stroopsToXlm(stroops: bigint, decimals: number = STROOP_DECIMALS
   // Pad the stroop remainder out to full precision, then round/truncate to
   // the requested number of decimal places.
   const fullFraction = remainderStroops.toString().padStart(STROOP_DECIMALS, "0");
-  const fraction = decimals <= STROOP_DECIMALS
-    ? fullFraction.slice(0, decimals)
-    : fullFraction.padEnd(decimals, "0");
+  const fraction =
+    decimals <= STROOP_DECIMALS
+      ? fullFraction.slice(0, decimals)
+      : fullFraction.padEnd(decimals, "0");
 
   const sign = negative ? "-" : "";
   return decimals > 0 ? `${sign}${whole}.${fraction}` : `${sign}${whole}`;

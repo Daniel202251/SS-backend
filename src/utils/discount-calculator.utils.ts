@@ -25,7 +25,7 @@ export interface InvoiceTermsResult {
  */
 export function calculateTenureDays(
   dueDateInput: Date | string,
-  referenceDateInput?: Date | string,
+  referenceDateInput?: Date | string
 ): number {
   const due = typeof dueDateInput === "string" ? new Date(dueDateInput) : dueDateInput;
   const ref = referenceDateInput
@@ -50,7 +50,13 @@ export function calculateTenureDays(
  * Pure calculation utility for invoice discounting terms, fees, net advance amount, and annualized APR.
  */
 export function calculateInvoiceTerms(input: InvoiceTermsInput): InvoiceTermsResult {
-  const { faceValue: rawFaceValue, dueDate, discountBps, platformFeeBps = 0, referenceDate } = input;
+  const {
+    faceValue: rawFaceValue,
+    dueDate,
+    discountBps,
+    platformFeeBps = 0,
+    referenceDate,
+  } = input;
 
   const faceValue = new Decimal(rawFaceValue);
   if (faceValue.isNegative() || faceValue.isZero()) {
@@ -78,11 +84,7 @@ export function calculateInvoiceTerms(input: InvoiceTermsInput): InvoiceTermsRes
   // APR = (discountAmount / advanceAmount) * (365 / tenureDays) * 100
   let apr = new Decimal(0);
   if (advanceAmount.gt(0) && discountAmount.gt(0) && tenureDays > 0) {
-    apr = discountAmount
-      .dividedBy(advanceAmount)
-      .times(365)
-      .dividedBy(tenureDays)
-      .times(100);
+    apr = discountAmount.dividedBy(advanceAmount).times(365).dividedBy(tenureDays).times(100);
   }
 
   return {

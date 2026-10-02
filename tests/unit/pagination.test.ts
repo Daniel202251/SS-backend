@@ -65,7 +65,7 @@ describe("queryInvoicesPage", () => {
 
     expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
       "(invoice.createdAt < :createdAt OR (invoice.createdAt = :createdAt AND invoice.id < :id))",
-      { createdAt: new Date("2024-01-01T00:00:00.000Z"), id: "invoice-5" },
+      { createdAt: new Date("2024-01-01T00:00:00.000Z"), id: "invoice-5" }
     );
   });
 
@@ -118,7 +118,7 @@ describe("queryInvoicesPage", () => {
       { sellerId: "seller-1", status: InvoiceStatus.FUNDED },
       null,
       10,
-      mockDataSource,
+      mockDataSource
     );
 
     expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith("invoice.sellerId = :sellerId", {
@@ -136,7 +136,7 @@ describe("queryInvoicesPage", () => {
       { status: [InvoiceStatus.DRAFT, InvoiceStatus.PUBLISHED] },
       null,
       10,
-      mockDataSource,
+      mockDataSource
     );
 
     expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith("invoice.status IN (:...statuses)", {
@@ -159,14 +159,20 @@ describe("queryInvoicesPage", () => {
       makeInvoice({
         id: `invoice-${i + 1}`,
         createdAt: new Date(`2024-01-${String(10 - i).padStart(2, "0")}T00:00:00.000Z`),
-      }),
+      })
     );
 
     // Page 1: limit 5, returns invoices 1-5 (newest)
     mockQueryBuilder.getMany.mockResolvedValueOnce(allInvoices.slice(0, 6)); // 6 because take = limit+1
     const page1 = await queryInvoicesPage({}, null, 5, mockDataSource);
 
-    expect(page1.data.map((i) => i.id)).toEqual(["invoice-1", "invoice-2", "invoice-3", "invoice-4", "invoice-5"]);
+    expect(page1.data.map((i) => i.id)).toEqual([
+      "invoice-1",
+      "invoice-2",
+      "invoice-3",
+      "invoice-4",
+      "invoice-5",
+    ]);
     expect(page1.has_more).toBe(true);
     expect(page1.next_cursor).not.toBeNull();
 
@@ -184,7 +190,13 @@ describe("queryInvoicesPage", () => {
     const page2 = await queryInvoicesPage({}, page1.next_cursor, 5, mockDataSource);
 
     expect(page2.data).toHaveLength(5);
-    expect(page2.data.map((i) => i.id)).toEqual(["invoice-6", "invoice-7", "invoice-8", "invoice-9", "invoice-10"]);
+    expect(page2.data.map((i) => i.id)).toEqual([
+      "invoice-6",
+      "invoice-7",
+      "invoice-8",
+      "invoice-9",
+      "invoice-10",
+    ]);
     expect(page2.has_more).toBe(false);
 
     // Newly inserted invoice does not appear in page 2
@@ -193,8 +205,16 @@ describe("queryInvoicesPage", () => {
     // No original invoice skipped between page 1 and page 2
     const allPageIds = [...page1.data, ...page2.data].map((i) => i.id);
     expect(allPageIds).toEqual([
-      "invoice-1", "invoice-2", "invoice-3", "invoice-4", "invoice-5",
-      "invoice-6", "invoice-7", "invoice-8", "invoice-9", "invoice-10",
+      "invoice-1",
+      "invoice-2",
+      "invoice-3",
+      "invoice-4",
+      "invoice-5",
+      "invoice-6",
+      "invoice-7",
+      "invoice-8",
+      "invoice-9",
+      "invoice-10",
     ]);
 
     // Combined pages cover all 10 original invoices exactly once (no duplicates)

@@ -28,10 +28,7 @@ describe("Invoice Routes", () => {
   };
 
   const sellerId = "seller-123";
-  const validToken = jwt.sign(
-    { sub: sellerId, stellarAddress: "GTEST123" },
-    "test-secret",
-  );
+  const validToken = jwt.sign({ sub: sellerId, stellarAddress: "GTEST123" }, "test-secret");
 
   const mockInvoice = {
     id: "invoice-123",
@@ -70,7 +67,7 @@ describe("Invoice Routes", () => {
       createInvoiceRouter({
         invoiceService: mockInvoiceService,
         config: mockConfig as any,
-      }),
+      })
     );
     app.use(createErrorMiddleware(logger));
   });
@@ -166,7 +163,7 @@ describe("Invoice Routes", () => {
         createInvoiceRouter({
           invoiceService: mockInvoiceService,
           config: kycConfig as any,
-        }),
+        })
       );
       kycApp.use(createErrorMiddleware(logger));
 
@@ -198,7 +195,7 @@ describe("Invoice Routes", () => {
 
     it("should handle duplicate invoice number", async () => {
       mockInvoiceService.createInvoice.mockRejectedValue(
-        new ServiceError("invoice_number_exists", "Invoice number must be unique", 409),
+        new ServiceError("invoice_number_exists", "Invoice number must be unique", 409)
       );
 
       await request(app)
@@ -285,16 +282,14 @@ describe("Invoice Routes", () => {
     });
 
     it("should reject unauthenticated requests", async () => {
-      await request(app)
-        .get("/api/v1/invoices")
-        .expect(401);
+      await request(app).get("/api/v1/invoices").expect(401);
     });
 
     it("should validate pagination parameters", async () => {
       await request(app)
         .get("/api/v1/invoices?page=0&limit=20")
         .set("Authorization", `Bearer ${validToken}`)
-        .expect(400);
+        .expect(422);
     });
   });
 
@@ -313,10 +308,7 @@ describe("Invoice Routes", () => {
         data: mockInvoice,
       });
 
-      expect(mockInvoiceService.getInvoiceById).toHaveBeenCalledWith(
-        "invoice-123",
-        sellerId,
-      );
+      expect(mockInvoiceService.getInvoiceById).toHaveBeenCalledWith("invoice-123", sellerId);
     });
 
     it("should return 404 when invoice not found", async () => {
@@ -333,8 +325,8 @@ describe("Invoice Routes", () => {
         new ServiceError(
           "unauthorized_invoice_access",
           "You do not have access to this invoice",
-          403,
-        ),
+          403
+        )
       );
 
       await request(app)
@@ -344,9 +336,7 @@ describe("Invoice Routes", () => {
     });
 
     it("should reject unauthenticated requests", async () => {
-      await request(app)
-        .get("/api/v1/invoices/invoice-123")
-        .expect(401);
+      await request(app).get("/api/v1/invoices/invoice-123").expect(401);
     });
   });
 
@@ -400,8 +390,8 @@ describe("Invoice Routes", () => {
         new ServiceError(
           "invalid_invoice_status",
           "Cannot update invoice in published status. Only draft invoices can be updated.",
-          400,
-        ),
+          400
+        )
       );
 
       await request(app)
@@ -418,8 +408,8 @@ describe("Invoice Routes", () => {
         new ServiceError(
           "unauthorized_invoice_access",
           "You can only update your own invoices",
-          403,
-        ),
+          403
+        )
       );
 
       await request(app)
@@ -450,19 +440,12 @@ describe("Invoice Routes", () => {
         .set("Authorization", `Bearer ${validToken}`)
         .expect(204);
 
-      expect(mockInvoiceService.deleteInvoice).toHaveBeenCalledWith(
-        "invoice-123",
-        sellerId,
-      );
+      expect(mockInvoiceService.deleteInvoice).toHaveBeenCalledWith("invoice-123", sellerId);
     });
 
     it("should reject deletion of published invoice", async () => {
       mockInvoiceService.deleteInvoice.mockRejectedValue(
-        new ServiceError(
-          "invalid_invoice_status",
-          "Cannot delete invoice in published status",
-          400,
-        ),
+        new ServiceError("invalid_invoice_status", "Cannot delete invoice in published status", 400)
       );
 
       await request(app)
@@ -476,8 +459,8 @@ describe("Invoice Routes", () => {
         new ServiceError(
           "unauthorized_invoice_access",
           "You can only delete your own invoices",
-          403,
-        ),
+          403
+        )
       );
 
       await request(app)
@@ -487,9 +470,7 @@ describe("Invoice Routes", () => {
     });
 
     it("should reject unauthenticated requests", async () => {
-      await request(app)
-        .delete("/api/v1/invoices/invoice-123")
-        .expect(401);
+      await request(app).delete("/api/v1/invoices/invoice-123").expect(401);
     });
   });
 
@@ -523,8 +504,8 @@ describe("Invoice Routes", () => {
         new ServiceError(
           "invalid_status_transition",
           "Cannot transition from settled to published",
-          400,
-        ),
+          400
+        )
       );
 
       await request(app)
@@ -538,8 +519,8 @@ describe("Invoice Routes", () => {
         new ServiceError(
           "unauthorized_invoice_access",
           "You can only publish your own invoices",
-          403,
-        ),
+          403
+        )
       );
 
       await request(app)
@@ -549,9 +530,7 @@ describe("Invoice Routes", () => {
     });
 
     it("should reject unauthenticated requests", async () => {
-      await request(app)
-        .post("/api/v1/invoices/invoice-123/publish")
-        .expect(401);
+      await request(app).post("/api/v1/invoices/invoice-123/publish").expect(401);
     });
   });
 
@@ -606,7 +585,7 @@ describe("Invoice Routes", () => {
 
     it("should handle service errors", async () => {
       mockInvoiceService.uploadDocument.mockRejectedValue(
-        new ServiceError("invoice_not_found", "Invoice not found", 404),
+        new ServiceError("invoice_not_found", "Invoice not found", 404)
       );
 
       await request(app)
@@ -621,8 +600,8 @@ describe("Invoice Routes", () => {
         new ServiceError(
           "unauthorized_invoice_access",
           "You can only upload documents to your own invoices",
-          403,
-        ),
+          403
+        )
       );
 
       await request(app)

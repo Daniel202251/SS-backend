@@ -11,7 +11,9 @@ describe("Horizon response normalization", () => {
       memo: null,
       memoType: "text",
     });
-    expect(normalizeHorizonPayment({ type: "payment", amount: "5", to: "GABC", asset_code: "USDC" })).toMatchObject({
+    expect(
+      normalizeHorizonPayment({ type: "payment", amount: "5", to: "GABC", asset_code: "USDC" })
+    ).toMatchObject({
       destination: "GABC",
       assetCode: "USDC",
       assetIssuer: null,
@@ -20,6 +22,8 @@ describe("Horizon response normalization", () => {
 
   it("returns typed validation errors for malformed required fields", () => {
     expect(() => normalizeHorizonTransaction({})).toThrow(HorizonValidationError);
-    expect(() => normalizeHorizonPayment({ type: "payment", amount: 5 })).toThrow(HorizonValidationError);
+    expect(() => normalizeHorizonPayment({ type: "payment", amount: 5 })).toThrow(
+      HorizonValidationError
+    );
   });
 });

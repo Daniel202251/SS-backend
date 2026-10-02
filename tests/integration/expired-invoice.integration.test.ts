@@ -25,7 +25,7 @@ function createFakeDataSource(invoice: Invoice) {
     },
     find: async () => [] as Investment[],
     create: (_entity: unknown, data: Partial<Investment>) =>
-      ({ id: crypto.randomUUID(), status: InvestmentStatus.PENDING, ...data } as Investment),
+      ({ id: crypto.randomUUID(), status: InvestmentStatus.PENDING, ...data }) as Investment,
     save: async (_entity: unknown, data: Investment | Invoice) => {
       if ((data as Investment).investmentAmount !== undefined) {
         investments.set((data as Investment).id, data as Investment);
@@ -36,6 +36,10 @@ function createFakeDataSource(invoice: Invoice) {
 
   const dataSource = {
     transaction: (callback: (em: typeof manager) => Promise<unknown>) => callback(manager),
+    getRepository: () => ({
+      findOne: jest.fn().mockResolvedValue({ walletAddress: "test", termsVersion: "1", acknowledgedAt: new Date() }),
+      find: jest.fn().mockResolvedValue([]),
+    }),
   } as unknown as DataSource;
 
   return { dataSource, investments };
@@ -79,7 +83,7 @@ describe("Expired invoice rejects new investment commitments (issue #109)", () =
         investorId: crypto.randomUUID(),
         investmentAmount: "100.0000",
         investorWallet: INVESTOR_WALLET,
-      }),
+      })
     ).rejects.toMatchObject({
       code: "invoice_expired",
       statusCode: 422,
@@ -97,7 +101,7 @@ describe("Expired invoice rejects new investment commitments (issue #109)", () =
         investorId: crypto.randomUUID(),
         investmentAmount: "100.0000",
         investorWallet: INVESTOR_WALLET,
-      }),
+      })
     ).rejects.toBeInstanceOf(ServiceError);
 
     expect(investments.size).toBe(0);
@@ -135,7 +139,7 @@ describe("Expired invoice rejects new investment commitments (issue #109)", () =
         investorId: crypto.randomUUID(),
         investmentAmount: "100.0000",
         investorWallet: INVESTOR_WALLET,
-      }),
+      })
     ).resolves.toMatchObject({ status: InvestmentStatus.PENDING });
 
     expect(investments.size).toBe(1);

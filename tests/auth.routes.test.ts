@@ -31,10 +31,47 @@ class InMemoryUserRepository implements UserRepositoryContract {
   }
 
   async findByStellarAddress(stellarAddress: string) {
-    return (
-      [...this.users.values()].find((user) => user.stellarAddress === stellarAddress) ??
-      null
+    return [...this.users.values()].find((user) => user.stellarAddress === stellarAddress) ?? null;
+  }
+
+  async findByEmail(email: string) {
+    return [...this.users.values()].find((u) => u.email === email) ?? null;
+  }
+
+  async findAll(options?: {
+    skip?: number;
+    take?: number;
+    cursor?: string;
+    order?: "ASC" | "DESC";
+  }) {
+    let results = [...this.users.values()].filter((u) => !u.deletedAt);
+    results.sort((a, b) =>
+      options?.order === "ASC" ? a.id.localeCompare(b.id) : b.id.localeCompare(a.id)
     );
+    if (options?.cursor) {
+      const cursorIndex = results.findIndex((u) => u.id === options.cursor);
+      if (cursorIndex >= 0) {
+        results = results.slice(cursorIndex + 1);
+      }
+    }
+    if (options?.skip) {
+      results = results.slice(options.skip);
+    }
+    if (options?.take) {
+      results = results.slice(0, options.take);
+    }
+    return results;
+  }
+
+  async count(options?: { cursor?: string }): Promise<number> {
+    let results = [...this.users.values()].filter((u) => !u.deletedAt);
+    if (options?.cursor) {
+      const cursorIndex = results.findIndex((u) => u.id === options.cursor);
+      if (cursorIndex >= 0) {
+        results = results.slice(0, cursorIndex);
+      }
+    }
+    return results.length;
   }
 
   async save(user: Partial<InMemoryUser>) {
@@ -45,6 +82,10 @@ class InMemoryUserRepository implements UserRepositoryContract {
       email: user.email ?? null,
       userType: user.userType ?? UserType.INVESTOR,
       kycStatus: user.kycStatus ?? KYCStatus.PENDING,
+      isKycVerified: user.isKycVerified ?? false,
+      isSuspended: user.isSuspended ?? false,
+      suspendedAt: user.suspendedAt ?? null,
+      suspensionReason: user.suspensionReason ?? null,
       createdAt: user.createdAt ?? now,
       updatedAt: user.updatedAt ?? now,
       deletedAt: user.deletedAt ?? null,
@@ -53,6 +94,9 @@ class InMemoryUserRepository implements UserRepositoryContract {
       transactions: user.transactions ?? [],
       kycVerifications: user.kycVerifications ?? [],
       notifications: user.notifications ?? [],
+      kycHistory: user.kycHistory ?? [],
+      secondaryListings: user.secondaryListings ?? [],
+      watchlistEntries: user.watchlistEntries ?? [],
     };
 
     this.users.set(entity.id, entity);
@@ -83,8 +127,7 @@ class InMemoryChallengeRepository implements ChallengeRepositoryContract {
     return (
       [...this.challenges.values()].find(
         (challenge) =>
-          challenge.stellarAddress === stellarAddress &&
-          challenge.nonceHash === nonceHash,
+          challenge.stellarAddress === stellarAddress && challenge.nonceHash === nonceHash
       ) ?? null
     );
   }
@@ -98,6 +141,28 @@ class InMemoryChallengeRepository implements ChallengeRepositoryContract {
 
     challenge.consumedAt = consumedAt;
     return true;
+  }
+
+  async deleteExpired(before: Date): Promise<number> {
+    let count = 0;
+    for (const [id, challenge] of this.challenges.entries()) {
+      if (challenge.expiresAt < before || (challenge.consumedAt && challenge.consumedAt < before)) {
+        this.challenges.delete(id);
+        count++;
+      }
+    }
+    return count;
+  }
+
+  async countByStatus(status: "active" | "consumed" | "expired"): Promise<number> {
+    const now = new Date();
+    let count = 0;
+    for (const challenge of this.challenges.values()) {
+      if (status === "active" && !challenge.consumedAt && challenge.expiresAt > now) count++;
+      if (status === "consumed" && challenge.consumedAt) count++;
+      if (status === "expired" && !challenge.consumedAt && challenge.expiresAt <= now) count++;
+    }
+    return count;
   }
 }
 
@@ -129,7 +194,7 @@ function createTestServer(challengeTtlMs = 60_000) {
 }
 
 afterEach(() => {
-jest.useRealTimers();
+  jest.useRealTimers();
 });
 
 describe("Auth routes", () => {
@@ -281,9 +346,53 @@ describe("Auth routes", () => {
 
     expect(
       [...challengeRepository.challenges.values()].some(
-        (challenge) => challenge.consumedAt !== null,
-      ),
+        (challenge) => challenge.consumedAt !== null
+      )
     ).toBe(true);
+  });
+
+  it("returns 401 rather than crashing when the signature is the wrong byte length", async () => {
+    const { app } = createTestServer();
+    const keypair = Keypair.random();
+
+    const challengeResponse = await request(app)
+      .post("/api/v1/auth/challenge")
+      .send({ publicKey: keypair.publicKey() })
+      .expect(201);
+
+    const { nonce } = challengeResponse.body.challenge;
+
+    // Valid hex encoding, but far short of the 64 raw bytes a real Ed25519
+    // signature decodes to — the underlying verify call throws for this
+    // rather than returning false.
+    await request(app)
+      .post("/api/v1/auth/verify")
+      .send({
+        publicKey: keypair.publicKey(),
+        nonce,
+        signature: "00",
+      })
+      .expect(401);
+  });
+
+  it("rate limits repeated /challenge attempts from the same caller", async () => {
+    const { app } = createTestServer();
+    const keypair = Keypair.random();
+
+    // The auth rate limiter (createAuthRateLimitMiddleware) allows 10
+    // requests per window; it previously existed but was never wired into
+    // any router, so /challenge and /verify had no abuse protection at all.
+    for (let i = 0; i < 10; i += 1) {
+      await request(app)
+        .post("/api/v1/auth/challenge")
+        .send({ publicKey: keypair.publicKey() })
+        .expect(201);
+    }
+
+    await request(app)
+      .post("/api/v1/auth/challenge")
+      .send({ publicKey: keypair.publicKey() })
+      .expect(429);
   });
 
   it("returns 401 from /me when the bearer token is missing", async () => {

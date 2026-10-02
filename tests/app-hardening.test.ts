@@ -52,7 +52,7 @@ describe("App hardening", () => {
 
     expect(app.get("trust proxy")).toBe(1);
     expect(response.headers["access-control-allow-origin"]).toBe(
-      "https://app.stellarstate.example",
+      "https://app.stellarstate.example"
     );
   });
 

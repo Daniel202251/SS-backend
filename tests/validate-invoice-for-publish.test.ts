@@ -97,7 +97,7 @@ describe("validateInvoiceForPublish", () => {
     const errors = validateInvoiceForPublish(invoice);
     expect(errors).toHaveLength(3);
     expect(errors.map((e) => e.code)).toEqual(
-      expect.arrayContaining(["FACE_VALUE_TOO_LOW", "DUE_DATE_IN_PAST", "MISSING_DOCUMENT"]),
+      expect.arrayContaining(["FACE_VALUE_TOO_LOW", "DUE_DATE_IN_PAST", "MISSING_DOCUMENT"])
     );
   });
 

@@ -10,7 +10,7 @@ export class AddUserKycVerifiedFlag1731900000001 implements MigrationInterface {
         name: "is_kyc_verified",
         type: "boolean",
         default: false,
-      }),
+      })
     );
     await queryRunner.query(`
       UPDATE "users"

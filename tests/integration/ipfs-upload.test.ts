@@ -2,7 +2,9 @@ import { IPFSService } from "../../src/services/ipfs.service";
 import { ServiceError } from "../../src/utils/service-error";
 import { logger } from "../../src/observability/logger";
 
-function createMockFetch(responses: Array<{ ok: boolean; status: number; statusText: string; body: unknown }>) {
+function createMockFetch(
+  responses: Array<{ ok: boolean; status: number; statusText: string; body: unknown }>
+) {
   let callCount = 0;
   return jest.fn().mockImplementation(async () => {
     const response = responses[callCount] ?? responses[responses.length - 1];
@@ -36,8 +38,22 @@ describe("IPFS upload integration – retry backoff & error handling", () => {
   describe("429 rate limit followed by successful retry", () => {
     it("retries after 429 and succeeds on second attempt", async () => {
       const mockFetch = createMockFetch([
-        { ok: false, status: 429, statusText: "Too Many Requests", body: { error: "Rate limit exceeded" } },
-        { ok: true, status: 200, statusText: "OK", body: { IpfsHash: "QmRetrySuccess", PinSize: 1024, Timestamp: "2024-01-01T00:00:00.000Z" } },
+        {
+          ok: false,
+          status: 429,
+          statusText: "Too Many Requests",
+          body: { error: "Rate limit exceeded" },
+        },
+        {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          body: {
+            IpfsHash: "QmRetrySuccess",
+            PinSize: 1024,
+            Timestamp: "2024-01-01T00:00:00.000Z",
+          },
+        },
       ]);
 
       const service = new IPFSService({
@@ -46,11 +62,23 @@ describe("IPFS upload integration – retry backoff & error handling", () => {
         fetchImplementation: mockFetch,
       });
 
-      const firstAttempt = service.uploadFile(validBuffer, validFilename, validMimeType, "inv-1", 1);
+      const firstAttempt = service.uploadFile(
+        validBuffer,
+        validFilename,
+        validMimeType,
+        "inv-1",
+        1
+      );
       await expect(firstAttempt).rejects.toThrow(ServiceError);
       await expect(firstAttempt).rejects.toMatchObject({ code: "ipfs_upload_failed" });
 
-      const secondAttempt = service.uploadFile(validBuffer, validFilename, validMimeType, "inv-1", 2);
+      const secondAttempt = service.uploadFile(
+        validBuffer,
+        validFilename,
+        validMimeType,
+        "inv-1",
+        2
+      );
       const result = await secondAttempt;
       expect(result.hash).toBe("QmRetrySuccess");
       expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -82,7 +110,11 @@ describe("IPFS upload integration – retry backoff & error handling", () => {
           ok: true,
           status: 200,
           statusText: "OK",
-          json: async () => ({ IpfsHash: "QmBackoff", PinSize: 512, Timestamp: "2024-01-01T00:00:00.000Z" }),
+          json: async () => ({
+            IpfsHash: "QmBackoff",
+            PinSize: 512,
+            Timestamp: "2024-01-01T00:00:00.000Z",
+          }),
           text: async () => "",
         };
       });
@@ -117,11 +149,11 @@ describe("IPFS upload integration – retry backoff & error handling", () => {
       });
 
       await expect(
-        service.uploadFile(oversizedBuffer, validFilename, validMimeType),
+        service.uploadFile(oversizedBuffer, validFilename, validMimeType)
       ).rejects.toThrow(ServiceError);
 
       await expect(
-        service.uploadFile(oversizedBuffer, validFilename, validMimeType),
+        service.uploadFile(oversizedBuffer, validFilename, validMimeType)
       ).rejects.toMatchObject({ code: "file_too_large", statusCode: 400 });
 
       expect(mockFetch).not.toHaveBeenCalled();
@@ -137,7 +169,7 @@ describe("IPFS upload integration – retry backoff & error handling", () => {
       });
 
       await expect(
-        service.uploadFile(validBuffer, "test.exe", "application/x-executable"),
+        service.uploadFile(validBuffer, "test.exe", "application/x-executable")
       ).rejects.toMatchObject({ code: "invalid_file_type", statusCode: 400 });
 
       expect(mockFetch).not.toHaveBeenCalled();
@@ -157,13 +189,18 @@ describe("IPFS upload integration – retry backoff & error handling", () => {
       mockFetch.mockRejectedValue(new Error("ECONNREFUSED"));
 
       await expect(
-        service.uploadFile(validBuffer, validFilename, validMimeType),
+        service.uploadFile(validBuffer, validFilename, validMimeType)
       ).rejects.toMatchObject({ code: "ipfs_upload_error", statusCode: 500 });
     });
 
     it("reports non-2xx Pinata responses as ipfs_upload_failed", async () => {
       const mockFetch = createMockFetch([
-        { ok: false, status: 500, statusText: "Internal Server Error", body: { error: "Pinata unavailable" } },
+        {
+          ok: false,
+          status: 500,
+          statusText: "Internal Server Error",
+          body: { error: "Pinata unavailable" },
+        },
       ]);
 
       const service = new IPFSService({
@@ -173,13 +210,18 @@ describe("IPFS upload integration – retry backoff & error handling", () => {
       });
 
       await expect(
-        service.uploadFile(validBuffer, validFilename, validMimeType),
+        service.uploadFile(validBuffer, validFilename, validMimeType)
       ).rejects.toMatchObject({ code: "ipfs_upload_failed", statusCode: 502 });
     });
 
     it("includes error details in thrown ServiceError", async () => {
       const mockFetch = createMockFetch([
-        { ok: false, status: 402, statusText: "Payment Required", body: { error: "Subscription expired" } },
+        {
+          ok: false,
+          status: 402,
+          statusText: "Payment Required",
+          body: { error: "Subscription expired" },
+        },
       ]);
 
       const service = new IPFSService({
@@ -206,7 +248,11 @@ describe("IPFS upload integration – retry backoff & error handling", () => {
           ok: true,
           status: 200,
           statusText: "OK",
-          body: { IpfsHash: "QmFinalHash999", PinSize: 2048, Timestamp: "2024-06-15T12:00:00.000Z" },
+          body: {
+            IpfsHash: "QmFinalHash999",
+            PinSize: 2048,
+            Timestamp: "2024-06-15T12:00:00.000Z",
+          },
         },
       ]);
 
@@ -216,7 +262,13 @@ describe("IPFS upload integration – retry backoff & error handling", () => {
         fetchImplementation: mockFetch,
       });
 
-      const result = await service.uploadFile(validBuffer, validFilename, validMimeType, "inv-1", 1);
+      const result = await service.uploadFile(
+        validBuffer,
+        validFilename,
+        validMimeType,
+        "inv-1",
+        1
+      );
 
       expect(result).toEqual({
         hash: "QmFinalHash999",
@@ -227,7 +279,12 @@ describe("IPFS upload integration – retry backoff & error handling", () => {
 
     it("sends correct Authorization header to Pinata", async () => {
       const mockFetch = createMockFetch([
-        { ok: true, status: 200, statusText: "OK", body: { IpfsHash: "QmAuth", PinSize: 100, Timestamp: "2024-01-01T00:00:00.000Z" } },
+        {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          body: { IpfsHash: "QmAuth", PinSize: 100, Timestamp: "2024-01-01T00:00:00.000Z" },
+        },
       ]);
 
       const service = new IPFSService({
@@ -243,7 +300,7 @@ describe("IPFS upload integration – retry backoff & error handling", () => {
         expect.objectContaining({
           method: "POST",
           headers: { Authorization: "Bearer test-jwt-token" },
-        }),
+        })
       );
     });
   });

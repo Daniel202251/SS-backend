@@ -33,8 +33,7 @@ class InMemoryInvoiceRepository implements InvoiceRepositoryContract {
   async findOneBy(options: { id?: string; invoiceNumber?: string }) {
     for (const invoice of this.invoices.values()) {
       if (options.id && invoice.id === options.id) return invoice;
-      if (options.invoiceNumber && invoice.invoiceNumber === options.invoiceNumber)
-        return invoice;
+      if (options.invoiceNumber && invoice.invoiceNumber === options.invoiceNumber) return invoice;
     }
     return null;
   }
@@ -48,7 +47,7 @@ class InMemoryInvoiceRepository implements InvoiceRepositoryContract {
     return [...this.invoices.values()].filter(
       (inv) =>
         inv.sellerId === options.where.sellerId &&
-        (options.where.status == null || inv.status === options.where.status),
+        (options.where.status == null || inv.status === options.where.status)
     );
   }
 
@@ -79,6 +78,7 @@ function makeSeller(kycStatus: KYCStatus | null): User {
     email: "seller@example.com",
     userType: UserType.SELLER,
     kycStatus: kycStatus as unknown as KYCStatus, // null simulates a missing/unset KYC record
+    isKycVerified: kycStatus === KYCStatus.APPROVED,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -87,7 +87,7 @@ function makeSeller(kycStatus: KYCStatus | null): User {
     transactions: [],
     kycVerifications: [],
     notifications: [],
-  } as User;
+  } as unknown as User;
 }
 
 /**
@@ -96,12 +96,9 @@ function makeSeller(kycStatus: KYCStatus | null): User {
  * attached) so that a rejection in these tests can only be attributed to
  * the KYC gate, not incidental publish-validation failures.
  */
-function seedPublishableInvoice(
-  repo: InMemoryInvoiceRepository,
-  seller: User,
-): Invoice {
+function seedPublishableInvoice(repo: InMemoryInvoiceRepository, seller: User): Invoice {
   const now = new Date();
-  const invoice: Invoice = {
+  const invoice = {
     id: crypto.randomUUID(),
     sellerId: seller.id,
     invoiceNumber: `INV-${crypto.randomBytes(4).toString("hex")}`,
@@ -121,7 +118,7 @@ function seedPublishableInvoice(
     seller,
     investments: [],
     transactions: [],
-  } as Invoice;
+  } as unknown as Invoice;
 
   repo.save(invoice);
   return invoice;
@@ -141,7 +138,7 @@ describe("Invoice publish: approved-seller KYC gate (issue #217)", () => {
     const invoice = seedPublishableInvoice(repo, seller);
 
     await expect(
-      service.publishInvoice({ invoiceId: invoice.id, sellerId: seller.id }),
+      service.publishInvoice({ invoiceId: invoice.id, sellerId: seller.id })
     ).rejects.toMatchObject({
       code: "kyc_approval_required",
       statusCode: 403,
@@ -153,7 +150,7 @@ describe("Invoice publish: approved-seller KYC gate (issue #217)", () => {
     const invoice = seedPublishableInvoice(repo, seller);
 
     await expect(
-      service.publishInvoice({ invoiceId: invoice.id, sellerId: seller.id }),
+      service.publishInvoice({ invoiceId: invoice.id, sellerId: seller.id })
     ).rejects.toMatchObject({
       code: "kyc_approval_required",
       statusCode: 403,
@@ -165,7 +162,7 @@ describe("Invoice publish: approved-seller KYC gate (issue #217)", () => {
     const invoice = seedPublishableInvoice(repo, seller);
 
     await expect(
-      service.publishInvoice({ invoiceId: invoice.id, sellerId: seller.id }),
+      service.publishInvoice({ invoiceId: invoice.id, sellerId: seller.id })
     ).rejects.toMatchObject({
       code: "kyc_approval_required",
       statusCode: 403,
@@ -177,7 +174,7 @@ describe("Invoice publish: approved-seller KYC gate (issue #217)", () => {
     const invoice = seedPublishableInvoice(repo, seller);
 
     await expect(
-      service.publishInvoice({ invoiceId: invoice.id, sellerId: seller.id }),
+      service.publishInvoice({ invoiceId: invoice.id, sellerId: seller.id })
     ).rejects.toMatchObject({
       code: "kyc_approval_required",
       statusCode: 403,
@@ -192,7 +189,7 @@ describe("Invoice publish: approved-seller KYC gate (issue #217)", () => {
       const invoice = seedPublishableInvoice(repo, seller);
 
       await expect(
-        service.publishInvoice({ invoiceId: invoice.id, sellerId: seller.id }),
+        service.publishInvoice({ invoiceId: invoice.id, sellerId: seller.id })
       ).rejects.toMatchObject({ code: "kyc_approval_required" });
 
       const persisted = await repo.findOne({ where: { id: invoice.id } });
@@ -221,7 +218,7 @@ describe("Invoice publish: approved-seller KYC gate (issue #217)", () => {
     const invoice = seedPublishableInvoice(repo, owner);
 
     await expect(
-      service.publishInvoice({ invoiceId: invoice.id, sellerId: impostor.id }),
+      service.publishInvoice({ invoiceId: invoice.id, sellerId: impostor.id })
     ).rejects.toMatchObject({
       code: "unauthorized_invoice_access",
       statusCode: 403,

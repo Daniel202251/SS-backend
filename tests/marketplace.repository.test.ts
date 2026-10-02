@@ -113,11 +113,11 @@ describe("TypeORMMarketplaceRepository", () => {
 
       expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
         "CAST(invoice.amount AS DECIMAL) >= :minAmount",
-        { minAmount: 500 },
+        { minAmount: 500 }
       );
       expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
         "CAST(invoice.amount AS DECIMAL) <= :maxAmount",
-        { maxAmount: 2000 },
+        { maxAmount: 2000 }
       );
     });
 
@@ -196,14 +196,20 @@ describe("TypeORMMarketplaceRepository", () => {
       // Should only have the base where clause for deleted_at
       expect(mockQueryBuilder.where).toHaveBeenCalledTimes(1);
       expect(mockQueryBuilder.where).toHaveBeenCalledWith("invoice.deleted_at IS NULL");
-      
+
       // Should not have additional where clauses for optional filters (except default status)
       const andWhereCalls = mockQueryBuilder.andWhere.mock.calls;
-      expect(andWhereCalls.some(call => typeof call[0] === 'string' && call[0].includes("due_date"))).toBe(false);
-      expect(andWhereCalls.some(call => typeof call[0] === 'string' && call[0].includes("amount"))).toBe(false);
-      
+      expect(
+        andWhereCalls.some((call) => typeof call[0] === "string" && call[0].includes("due_date"))
+      ).toBe(false);
+      expect(
+        andWhereCalls.some((call) => typeof call[0] === "string" && call[0].includes("amount"))
+      ).toBe(false);
+
       // Status filter should be applied with default value
-      expect(andWhereCalls.some(call => typeof call[0] === 'string' && call[0].includes("status"))).toBe(true);
+      expect(
+        andWhereCalls.some((call) => typeof call[0] === "string" && call[0].includes("status"))
+      ).toBe(true);
     });
 
     it("should return both invoices and total count", async () => {
@@ -212,7 +218,7 @@ describe("TypeORMMarketplaceRepository", () => {
 
       const result = await marketplaceService.getPublishedInvoices(
         { status: [InvoiceStatus.PUBLISHED] },
-        { page: 1, limit: 20 },
+        { page: 1, limit: 20 }
       );
 
       expect(result.meta.total).toBe(25);

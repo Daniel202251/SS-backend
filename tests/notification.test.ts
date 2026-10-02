@@ -60,10 +60,7 @@ function rejectAuthMiddleware() {
 // avoiding the double-auth problem with createNotificationRouter.
 // ---------------------------------------------------------------------------
 
-function buildApp(
-  notificationService: NotificationService,
-  authUserId?: string,
-) {
+function buildApp(notificationService: NotificationService, authUserId?: string) {
   const app = express();
   app.use(express.json());
 
@@ -90,9 +87,7 @@ function buildApp(
 // Mocked NotificationService
 // ---------------------------------------------------------------------------
 
-function buildMockService(
-  overrides: Partial<NotificationService> = {},
-): NotificationService {
+function buildMockService(overrides: Partial<NotificationService> = {}): NotificationService {
   const defaults = {
     createNotification: jest.fn(),
     listNotifications: jest.fn().mockResolvedValue({
@@ -126,7 +121,7 @@ describe("GET /api/v1/notifications", () => {
     expect(res.body.data).toHaveLength(1);
     expect(res.body.meta.total).toBe(1);
     expect(service.listNotifications).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "user-1" }),
+      expect.objectContaining({ userId: "user-1" })
     );
   });
 
@@ -137,7 +132,7 @@ describe("GET /api/v1/notifications", () => {
     await request(app).get("/api/v1/notifications?read=false");
 
     expect(service.listNotifications).toHaveBeenCalledWith(
-      expect.objectContaining({ read: false }),
+      expect.objectContaining({ read: false })
     );
   });
 
@@ -148,7 +143,7 @@ describe("GET /api/v1/notifications", () => {
     await request(app).get(`/api/v1/notifications?type=${NotificationType.INVOICE}`);
 
     expect(service.listNotifications).toHaveBeenCalledWith(
-      expect.objectContaining({ type: NotificationType.INVOICE }),
+      expect.objectContaining({ type: NotificationType.INVOICE })
     );
   });
 

@@ -30,7 +30,11 @@ function optionalString(value: unknown): string | null {
 }
 
 export function normalizeHorizonTransaction(value: unknown): NormalizedHorizonTransaction {
-  if (typeof value !== "object" || value === null || typeof (value as { successful?: unknown }).successful !== "boolean") {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    typeof (value as { successful?: unknown }).successful !== "boolean"
+  ) {
     throw new HorizonValidationError("Horizon transaction is missing required successful field");
   }
   const transaction = value as Record<string, unknown>;
@@ -47,8 +51,14 @@ export function normalizeHorizonPayment(value: unknown): NormalizedHorizonPaymen
     throw new HorizonValidationError("Horizon payment must be an object");
   }
   const payment = value as Record<string, unknown>;
-  if (typeof payment.type !== "string" || typeof payment.amount !== "string" || typeof payment.to !== "string") {
-    throw new HorizonValidationError("Horizon payment is missing required type, amount, or destination");
+  if (
+    typeof payment.type !== "string" ||
+    typeof payment.amount !== "string" ||
+    typeof payment.to !== "string"
+  ) {
+    throw new HorizonValidationError(
+      "Horizon payment is missing required type, amount, or destination"
+    );
   }
   return {
     id: optionalString(payment.id),

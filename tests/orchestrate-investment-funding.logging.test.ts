@@ -1,9 +1,7 @@
 import crypto from "crypto";
 import { Investment } from "../src/models/Investment.model";
 import { Transaction } from "../src/models/Transaction.model";
-import {
-  OrchestrateInvestmentFundingService,
-} from "../src/services/stellar/orchestrate-investment-funding.service";
+import { OrchestrateInvestmentFundingService } from "../src/services/stellar/orchestrate-investment-funding.service";
 import { InvestmentStatus, TransactionStatus, TransactionType } from "../src/types/enums";
 import type { AppLogger } from "../src/observability/logger";
 
@@ -24,7 +22,7 @@ function createInvestment(overrides: Partial<Investment> = {}): Investment {
     invoice: overrides.invoice as Investment["invoice"],
     investor: overrides.investor as Investment["investor"],
     transactions: overrides.transactions ?? [],
-  };
+  } as unknown as Investment;
 }
 
 function createTransaction(overrides: Partial<Transaction> = {}): Transaction {
@@ -42,7 +40,7 @@ function createTransaction(overrides: Partial<Transaction> = {}): Transaction {
     user: overrides.user as Transaction["user"],
     invoice: overrides.invoice as Transaction["invoice"],
     investment: overrides.investment as Transaction["investment"],
-  };
+  } as unknown as Transaction;
 }
 
 function createMockLogger(): jest.Mocked<AppLogger> {
@@ -100,7 +98,7 @@ describe("OrchestrateInvestmentFundingService structured escrow logging", () => 
         function_name: "prepare_investment_funding",
         invoice_id: investment.invoiceId,
         submitted_at: expect.any(String),
-      }),
+      })
     );
 
     expect(logger.info).toHaveBeenCalledWith(
@@ -112,7 +110,7 @@ describe("OrchestrateInvestmentFundingService structured escrow logging", () => 
         tx_hash: "escrow-tx-hash",
         ledger: 555111,
         confirmed_at: expect.any(String),
-      }),
+      })
     );
 
     const [, debugMetadata] = logger.debug.mock.calls[0];
@@ -148,7 +146,7 @@ describe("OrchestrateInvestmentFundingService structured escrow logging", () => 
         invoice_id: investment.invoiceId,
         submitted_at: expect.any(String),
         error_reason: "RPC unavailable",
-      }),
+      })
     );
     expect(logger.info).not.toHaveBeenCalled();
   });

@@ -8,28 +8,28 @@
  * @returns A paginated response envelope object
  */
 export function buildPaginatedResponse<T>(
-    items: T[],
-    totalCount: number,
-    limit: number,
-    nextCursor?: string,
+  items: T[],
+  totalCount: number,
+  limit: number,
+  nextCursor?: string
 ): {
-    success: true;
-    data: T[];
-    meta: {
-        total: number;
-        limit: number;
-        hasNextPage: boolean;
-        nextCursor: string | null;
-    };
+  success: true;
+  data: T[];
+  meta: {
+    total: number;
+    limit: number;
+    hasNextPage: boolean;
+    nextCursor: string | null;
+  };
 } {
-    return {
-        success: true,
-        data: items,
-        meta: {
-            total: totalCount,
-            limit,
-            hasNextPage: Boolean(nextCursor),
-            nextCursor: nextCursor || null,
-        },
-    };
+  return {
+    success: true,
+    data: items,
+    meta: {
+      total: totalCount,
+      limit,
+      hasNextPage: Boolean(nextCursor),
+      nextCursor: nextCursor || null,
+    },
+  };
 }

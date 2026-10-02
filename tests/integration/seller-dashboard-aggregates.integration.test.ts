@@ -14,7 +14,8 @@ function createFakeInvoiceService() {
   const fakeInvoiceRepository: InvoiceServiceDependencies["invoiceRepository"] = {
     findOne: async () => null,
     findOneBy: async () => null,
-    find: async ({ where: { sellerId, status } }) => {
+    find: async ({ where }: any) => {
+      const { sellerId, status } = (Array.isArray(where) ? where[0] : where) || {};
       return [...invoices.values()].filter((inv) => {
         if (inv.sellerId !== sellerId) return false;
         if (status && inv.status !== status) return false;
@@ -25,7 +26,8 @@ function createFakeInvoiceService() {
       invoices.set(invoice.id, invoice);
       return invoice;
     },
-    count: async ({ where: { sellerId, status } }) => {
+    count: async ({ where }: any) => {
+      const { sellerId, status } = (Array.isArray(where) ? where[0] : where) || {};
       return [...invoices.values()].filter((inv) => {
         if (inv.sellerId !== sellerId) return false;
         if (status && inv.status !== status) return false;
@@ -133,14 +135,14 @@ describe("Seller dashboard: aggregates scoped to authenticated seller only", () 
 
     // Assert seller A published total is 2000
     const sellerAPublished = sellerAResult.invoices.filter(
-      (inv) => inv.status === InvoiceStatus.PUBLISHED,
+      (inv) => inv.status === InvoiceStatus.PUBLISHED
     );
     expect(sellerAPublished).toHaveLength(1);
     expect(sellerAPublished[0].amount).toBe("2000.0000");
 
     // Assert seller A settled total is 3000
     const sellerASettled = sellerAResult.invoices.filter(
-      (inv) => inv.status === InvoiceStatus.SETTLED,
+      (inv) => inv.status === InvoiceStatus.SETTLED
     );
     expect(sellerASettled).toHaveLength(1);
     expect(sellerASettled[0].amount).toBe("3000.0000");
@@ -148,7 +150,7 @@ describe("Seller dashboard: aggregates scoped to authenticated seller only", () 
     // No seller B invoices in seller A's result
     const sellerBInvoiceNumbers = ["INV-B-001", "INV-B-002"];
     expect(
-      sellerAResult.invoices.some((inv) => sellerBInvoiceNumbers.includes(inv.invoiceNumber)),
+      sellerAResult.invoices.some((inv) => sellerBInvoiceNumbers.includes(inv.invoiceNumber))
     ).toBe(false);
 
     // Call seller dashboard as seller B
@@ -164,14 +166,14 @@ describe("Seller dashboard: aggregates scoped to authenticated seller only", () 
 
     // Assert seller B published total is 5000
     const sellerBPublished = sellerBResult.invoices.filter(
-      (inv) => inv.status === InvoiceStatus.PUBLISHED,
+      (inv) => inv.status === InvoiceStatus.PUBLISHED
     );
     expect(sellerBPublished).toHaveLength(1);
     expect(sellerBPublished[0].amount).toBe("5000.0000");
 
     // Assert seller B funded total is 4000
     const sellerBFunded = sellerBResult.invoices.filter(
-      (inv) => inv.status === InvoiceStatus.FUNDED,
+      (inv) => inv.status === InvoiceStatus.FUNDED
     );
     expect(sellerBFunded).toHaveLength(1);
     expect(sellerBFunded[0].amount).toBe("4000.0000");
@@ -179,7 +181,7 @@ describe("Seller dashboard: aggregates scoped to authenticated seller only", () 
     // No seller A invoices in seller B's result
     const sellerAInvoiceNumbers = ["INV-A-001", "INV-A-002"];
     expect(
-      sellerBResult.invoices.some((inv) => sellerAInvoiceNumbers.includes(inv.invoiceNumber)),
+      sellerBResult.invoices.some((inv) => sellerAInvoiceNumbers.includes(inv.invoiceNumber))
     ).toBe(false);
   });
 });

@@ -42,11 +42,7 @@ function sanitizeObject(obj: Record<string, unknown>): Record<string, unknown> {
   return sanitized;
 }
 
-export function sanitizeInputMiddleware(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-): void {
+export function sanitizeInputMiddleware(req: Request, _res: Response, next: NextFunction): void {
   if (req.body && typeof req.body === "object" && !isBuffer(req.body)) {
     req.body = sanitizeObject(req.body);
   }

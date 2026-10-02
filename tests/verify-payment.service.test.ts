@@ -36,7 +36,7 @@ function createInvestment(overrides: Partial<Investment> = {}): Investment {
     invoice: overrides.invoice as Investment["invoice"],
     investor: overrides.investor as Investment["investor"],
     transactions: overrides.transactions ?? [],
-  };
+  } as unknown as Investment;
 }
 
 function createTransaction(overrides: Partial<Transaction> = {}): Transaction {
@@ -58,7 +58,7 @@ function createTransaction(overrides: Partial<Transaction> = {}): Transaction {
     invoice: overrides.invoice as Transaction["invoice"],
 
     investment: overrides.investment as Transaction["investment"],
-  };
+  } as unknown as Transaction;
 }
 
 function createServiceContext() {
@@ -128,7 +128,7 @@ describe("VerifyPaymentService", () => {
           ok: true,
           status: 200,
           body: { successful: true },
-        }),
+        })
       )
       .mockResolvedValueOnce(
         createMockResponse({
@@ -140,15 +140,14 @@ describe("VerifyPaymentService", () => {
                 {
                   type: "payment",
                   asset_code: "USDC",
-                  asset_issuer:
-                    "GDUKMGUGDZQK6YHZZ7KQJX2BQPJYVY5W7C2D4GMXQ3MNK4V2ZXN5R4OT",
+                  asset_issuer: "GDUKMGUGDZQK6YHZZ7KQJX2BQPJYVY5W7C2D4GMXQ3MNK4V2ZXN5R4OT",
                   amount: "100.0000",
                   to: "GCFXROWPUBKEYEXAMPLE7KQJX2BQPJYVY5W7C2D4GMXQ3MNK4V2ZXNOPE",
                 },
               ],
             },
           },
-        }),
+        })
       );
 
     const result = await context.service.verifyPayment({
@@ -158,9 +157,7 @@ describe("VerifyPaymentService", () => {
 
     expect(result.outcome).toBe("verified");
     expect(result.status).toBe(InvestmentStatus.CONFIRMED);
-    expect(context.investmentStore.get(context.investment.id)?.transactionHash).toBe(
-      stellarTxHash,
-    );
+    expect(context.investmentStore.get(context.investment.id)?.transactionHash).toBe(stellarTxHash);
 
     const savedTransactions = context.transactions.get(context.investment.id) ?? [];
     expect(savedTransactions).toHaveLength(1);
@@ -168,7 +165,6 @@ describe("VerifyPaymentService", () => {
     expect(savedTransactions[0].stellarTxHash).toBe(stellarTxHash);
 
     expect(savedTransactions[0].invoiceId).toBe(context.investment.invoiceId);
-
 
     const secondResult = await context.service.verifyPayment({
       investmentId: context.investment.id,
@@ -189,14 +185,14 @@ describe("VerifyPaymentService", () => {
           ok: false,
           status: 503,
           body: {},
-        }),
+        })
       )
       .mockResolvedValueOnce(
         createMockResponse({
           ok: true,
           status: 200,
           body: { successful: true },
-        }),
+        })
       )
       .mockResolvedValueOnce(
         createMockResponse({
@@ -208,15 +204,14 @@ describe("VerifyPaymentService", () => {
                 {
                   type: "payment",
                   asset_code: "USDC",
-                  asset_issuer:
-                    "GDUKMGUGDZQK6YHZZ7KQJX2BQPJYVY5W7C2D4GMXQ3MNK4V2ZXN5R4OT",
+                  asset_issuer: "GDUKMGUGDZQK6YHZZ7KQJX2BQPJYVY5W7C2D4GMXQ3MNK4V2ZXN5R4OT",
                   amount: "100.0000",
                   to: "GCFXROWPUBKEYEXAMPLE7KQJX2BQPJYVY5W7C2D4GMXQ3MNK4V2ZXNOPE",
                 },
               ],
             },
           },
-        }),
+        })
       );
 
     const result = await context.service.verifyPayment({
@@ -238,14 +233,14 @@ describe("VerifyPaymentService", () => {
         ok: false,
         status: 404,
         body: {},
-      }),
+      })
     );
 
     await expect(
       context.service.verifyPayment({
         investmentId: context.investment.id,
         stellarTxHash: "missing-hash",
-      }),
+      })
     ).rejects.toMatchObject({
       code: "transaction_not_found",
       statusCode: 404,
@@ -261,7 +256,7 @@ describe("VerifyPaymentService", () => {
           ok: true,
           status: 200,
           body: { successful: true },
-        }),
+        })
       )
       .mockResolvedValueOnce(
         createMockResponse({
@@ -279,14 +274,14 @@ describe("VerifyPaymentService", () => {
               ],
             },
           },
-        }),
+        })
       );
 
     await expect(
       context.service.verifyPayment({
         investmentId: context.investment.id,
         stellarTxHash: "bad-payment",
-      }),
+      })
     ).rejects.toMatchObject({
       code: "invalid_payment",
       statusCode: 422,

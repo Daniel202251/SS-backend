@@ -20,7 +20,9 @@ let lastPoolErrorLog = 0;
  * Logs a warn when utilisation exceeds 80% and error at 100%.
  * Each log is emitted at most once per 30 seconds.
  */
-export function startPoolMonitor(getPool: () => { totalCount: number; idleCount: number; waitingCount: number } | null): void {
+export function startPoolMonitor(
+  getPool: () => { totalCount: number; idleCount: number; waitingCount: number } | null
+): void {
   setInterval(() => {
     const pool = getPool();
     if (!pool) return;
@@ -85,9 +87,17 @@ if (!isDevelopment) {
   startPoolMonitor(() => {
     try {
       // TypeORM exposes the underlying pg pool via driver.master/slave
-      const pool = (dataSource.driver as unknown as { master?: { totalCount: number; idleCount: number; waitingCount: number } })?.master;
+      const pool = (
+        dataSource.driver as unknown as {
+          master?: { totalCount: number; idleCount: number; waitingCount: number };
+        }
+      )?.master;
       if (pool && typeof pool.totalCount === "number") {
-        return { totalCount: pool.totalCount, idleCount: pool.idleCount, waitingCount: pool.waitingCount };
+        return {
+          totalCount: pool.totalCount,
+          idleCount: pool.idleCount,
+          waitingCount: pool.waitingCount,
+        };
       }
     } catch {
       // Ignore — pool not yet initialised

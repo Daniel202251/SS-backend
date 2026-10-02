@@ -42,11 +42,11 @@ export async function queryInvoicesPage(
 
   if (filters.status) {
     if (Array.isArray(filters.status)) {
-       if (filters.status.length > 0) {
-         queryBuilder.andWhere("invoice.status IN (:...statuses)", { statuses: filters.status });
-       }
+      if (filters.status.length > 0) {
+        queryBuilder.andWhere("invoice.status IN (:...statuses)", { statuses: filters.status });
+      }
     } else {
-       queryBuilder.andWhere("invoice.status = :status", { status: filters.status });
+      queryBuilder.andWhere("invoice.status = :status", { status: filters.status });
     }
   }
 
@@ -83,12 +83,14 @@ export async function queryInvoicesPage(
   let nextCursor: string | null = null;
   if (items.length > 0) {
     const lastItem = items[items.length - 1];
-    nextCursor = Buffer.from(`${lastItem.createdAt.toISOString()}|${lastItem.id}`).toString("base64");
+    nextCursor = Buffer.from(`${lastItem.createdAt.toISOString()}|${lastItem.id}`).toString(
+      "base64"
+    );
   }
 
   return {
     data: items,
     has_more: hasMore,
-    next_cursor: nextCursor
+    next_cursor: nextCursor,
   };
 }

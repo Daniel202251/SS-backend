@@ -18,7 +18,7 @@ export interface WalletChallenge {
 export function buildWalletChallenge(
   walletAddress: string,
   networkPassphrase: string,
-  serverKeypair: Keypair,
+  serverKeypair: Keypair
 ): WalletChallenge {
   if (!StrKey.isValidEd25519PublicKey(walletAddress)) {
     throw new HttpError(400, "Invalid wallet address.");
@@ -36,7 +36,7 @@ export function buildWalletChallenge(
         name: "web_auth_domain",
         value: Buffer.from(nonce, "utf8"),
         source: walletAddress,
-      }),
+      })
     )
     .setTimeout(300)
     .build();

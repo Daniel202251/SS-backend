@@ -16,7 +16,7 @@ export interface SettlementCompletionLogInput {
  */
 export function logSettlementCompletion(
   logger: AppLogger,
-  input: SettlementCompletionLogInput,
+  input: SettlementCompletionLogInput
 ): void {
   logger.info("Settlement flow completed.", {
     invoice_id: input.invoiceId,

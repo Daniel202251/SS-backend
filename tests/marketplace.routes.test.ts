@@ -20,7 +20,7 @@ describe("Marketplace Routes", () => {
       "/api/v1/marketplace",
       createMarketplaceRouter({
         marketplaceService: mockMarketplaceService,
-      }),
+      })
     );
     app.use(createErrorMiddleware(logger));
   });
@@ -51,9 +51,7 @@ describe("Marketplace Routes", () => {
     it("should return published invoices with default parameters", async () => {
       mockMarketplaceService.getPublishedInvoices.mockResolvedValue(mockResponse);
 
-      const response = await request(app)
-        .get("/api/v1/marketplace/invoices")
-        .expect(200);
+      const response = await request(app).get("/api/v1/marketplace/invoices").expect(200);
 
       expect(response.body).toEqual({
         success: true,
@@ -70,7 +68,7 @@ describe("Marketplace Routes", () => {
           sort: "amount",
           sortOrder: "DESC",
         },
-        { page: 1, limit: 20 },
+        { page: 1, limit: 20 }
       );
     });
 
@@ -82,10 +80,10 @@ describe("Marketplace Routes", () => {
         .query({ page: 2, limit: 10 })
         .expect(200);
 
-      expect(mockMarketplaceService.getPublishedInvoices).toHaveBeenCalledWith(
-        expect.any(Object),
-        { page: 2, limit: 10 },
-      );
+      expect(mockMarketplaceService.getPublishedInvoices).toHaveBeenCalledWith(expect.any(Object), {
+        page: 2,
+        limit: 10,
+      });
     });
 
     it("should handle status filter as single value", async () => {
@@ -100,7 +98,7 @@ describe("Marketplace Routes", () => {
         expect.objectContaining({
           status: ["published"],
         }),
-        expect.any(Object),
+        expect.any(Object)
       );
     });
 
@@ -116,7 +114,7 @@ describe("Marketplace Routes", () => {
         expect.objectContaining({
           status: ["published", "funded"],
         }),
-        expect.any(Object),
+        expect.any(Object)
       );
     });
 
@@ -133,7 +131,7 @@ describe("Marketplace Routes", () => {
           minAmount: 500,
           maxAmount: 2000,
         }),
-        expect.any(Object),
+        expect.any(Object)
       );
     });
 
@@ -149,7 +147,7 @@ describe("Marketplace Routes", () => {
         expect.objectContaining({
           dueBefore: new Date("2024-12-31T23:59:59.999Z"),
         }),
-        expect.any(Object),
+        expect.any(Object)
       );
     });
 
@@ -166,7 +164,7 @@ describe("Marketplace Routes", () => {
           sort: "discount_rate",
           sortOrder: "DESC",
         }),
-        expect.any(Object),
+        expect.any(Object)
       );
     });
 
@@ -200,12 +198,10 @@ describe("Marketplace Routes", () => {
 
     it("should handle service errors", async () => {
       mockMarketplaceService.getPublishedInvoices.mockRejectedValue(
-        new Error("Database connection failed"),
+        new Error("Database connection failed")
       );
 
-      await request(app)
-        .get("/api/v1/marketplace/invoices")
-        .expect(500);
+      await request(app).get("/api/v1/marketplace/invoices").expect(500);
     });
 
     it("should strip unknown query parameters", async () => {
@@ -217,7 +213,7 @@ describe("Marketplace Routes", () => {
           page: 1,
           limit: 10,
           unknownParam: "should-be-stripped",
-          anotherUnknown: 123
+          anotherUnknown: 123,
         })
         .expect(200);
 
@@ -232,7 +228,7 @@ describe("Marketplace Routes", () => {
           sort: "amount",
           sortOrder: "DESC",
         },
-        { page: 1, limit: 10 },
+        { page: 1, limit: 10 }
       );
     });
 
@@ -262,7 +258,7 @@ describe("Marketplace Routes", () => {
           sort: "amount",
           sortOrder: "DESC",
         },
-        { page: 2, limit: 5 },
+        { page: 2, limit: 5 }
       );
     });
   });

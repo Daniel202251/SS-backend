@@ -11,14 +11,17 @@ import { InvoiceStatus, InvestmentStatus } from "../../src/types/enums";
  * InvestmentService funding logic end to end without a live database.
  */
 type FakeManager = {
-  createQueryBuilder: (entity: unknown, alias: string) => {
+  createQueryBuilder: (
+    entity: unknown,
+    alias: string
+  ) => {
     setLock: () => unknown;
     where: (clause: string, params: { id: string }) => unknown;
     getOne: () => Promise<Invoice | null>;
   };
   find: (
     entity: unknown,
-    options: { where: Record<string, unknown> | Record<string, unknown>[] },
+    options: { where: Record<string, unknown> | Record<string, unknown>[] }
   ) => Promise<Investment[]>;
   create: (entity: unknown, data: Partial<Investment>) => Investment | Partial<Investment>;
   save: (entity: unknown, data: Investment | Invoice) => Promise<Investment | Invoice>;
@@ -37,22 +40,22 @@ function createFakeDataSource(invoice: Invoice) {
           targetId = params.id;
           return builder;
         },
-        getOne: async () => (targetId ? invoices.get(targetId) ?? null : null),
+        getOne: async () => (targetId ? (invoices.get(targetId) ?? null) : null),
       };
       return builder;
     },
     find: async (
       entity: unknown,
-      options: { where: Record<string, unknown> | Record<string, unknown>[] },
+      options: { where: Record<string, unknown> | Record<string, unknown>[] }
     ) => {
       if (entity === Investment) {
         const whereClauses = Array.isArray(options.where) ? options.where : [options.where];
         return [...investments.values()].filter((investment) =>
           whereClauses.some((clause) =>
             Object.entries(clause).every(
-              ([key, value]) => (investment as unknown as Record<string, unknown>)[key] === value,
-            ),
-          ),
+              ([key, value]) => (investment as unknown as Record<string, unknown>)[key] === value
+            )
+          )
         );
       }
       return [];
@@ -75,6 +78,10 @@ function createFakeDataSource(invoice: Invoice) {
 
   const dataSource = {
     transaction: async (callback: (manager: FakeManager) => Promise<unknown>) => callback(manager),
+    getRepository: () => ({
+      findOne: jest.fn().mockResolvedValue({ walletAddress: "test", termsVersion: "1", acknowledgedAt: new Date() }),
+      find: jest.fn().mockResolvedValue([]),
+    }),
   } as unknown as DataSource;
 
   return { dataSource, invoices, investments };
@@ -110,9 +117,18 @@ describe("Fractional investment integration: splitting funded amount across mult
     const { dataSource, invoices, investments } = createFakeDataSource(invoice);
     const investmentService = new InvestmentService(dataSource);
 
-    const investorA = { id: crypto.randomUUID(), wallet: "GINVESTORA1234567890ABCDEFGHIJKLMNOPQRSTUVWXY" };
-    const investorB = { id: crypto.randomUUID(), wallet: "GINVESTORB1234567890ABCDEFGHIJKLMNOPQRSTUVWXY" };
-    const investorC = { id: crypto.randomUUID(), wallet: "GINVESTORC1234567890ABCDEFGHIJKLMNOPQRSTUVWXY" };
+    const investorA = {
+      id: crypto.randomUUID(),
+      wallet: "GINVESTORA1234567890ABCDEFGHIJKLMNOPQRSTUVWXY",
+    };
+    const investorB = {
+      id: crypto.randomUUID(),
+      wallet: "GINVESTORB1234567890ABCDEFGHIJKLMNOPQRSTUVWXY",
+    };
+    const investorC = {
+      id: crypto.randomUUID(),
+      wallet: "GINVESTORC1234567890ABCDEFGHIJKLMNOPQRSTUVWXY",
+    };
 
     const investmentA = await investmentService.createInvestment({
       invoiceId: invoice.id,
@@ -145,12 +161,12 @@ describe("Fractional investment integration: splitting funded amount across mult
 
     const totalFunded = allInvestments.reduce(
       (sum, investment) => sum.plus(new Decimal(investment.investmentAmount)),
-      new Decimal(0),
+      new Decimal(0)
     );
     expect(totalFunded.toFixed(4)).toBe("10000.0000");
 
     const sharePercentages = allInvestments.map((investment) =>
-      new Decimal(investment.investmentAmount).dividedBy(totalFunded).times(100),
+      new Decimal(investment.investmentAmount).dividedBy(totalFunded).times(100)
     );
 
     expect(sharePercentages[0].toFixed(2)).toBe("40.00");

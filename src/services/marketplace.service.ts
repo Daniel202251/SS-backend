@@ -20,12 +20,21 @@ export interface PaginationOptions {
 
 export interface PublicInvoice {
   id: string;
+  invoiceId?: string;
   invoiceNumber: string;
   customerName: string;
+  sellerName?: string;
   amount: string;
+  faceValue?: string;
+  fundingTarget?: string;
+  amountRaised?: string;
+  fundedAmount?: string;
   discountRate: string;
+  yieldBps?: number;
+  fundingPercentage?: number;
   netAmount: string;
   dueDate: Date;
+  fundingDeadline?: Date;
   status: InvoiceStatus;
   createdAt: Date;
   // Excluded: sellerId, ipfsHash, riskScore, smartContractId, updatedAt, deletedAt
@@ -59,7 +68,7 @@ export interface MarketplaceCursorPage {
 export interface MarketplaceRepositoryContract {
   findPublishedInvoices(
     filters: MarketplaceFilters,
-    pagination: PaginationOptions,
+    pagination: PaginationOptions
   ): Promise<{ invoices: Invoice[]; total: number }>;
   /**
    * Optional so that existing fake repositories implementing this contract
@@ -69,7 +78,7 @@ export interface MarketplaceRepositoryContract {
    */
   findPublishedInvoicesByCursor?(
     filters: MarketplaceFilters,
-    pagination: CursorPaginationOptions,
+    pagination: CursorPaginationOptions
   ): Promise<{ invoices: Invoice[]; nextCursor: string | null; hasMore: boolean }>;
 }
 
@@ -86,7 +95,7 @@ export class MarketplaceService {
 
   async getPublishedInvoices(
     filters: MarketplaceFilters = {},
-    pagination: PaginationOptions = { page: 1, limit: 20 },
+    pagination: PaginationOptions = { page: 1, limit: 20 }
   ): Promise<MarketplaceResponse> {
     // Set default filters
     const normalizedFilters: MarketplaceFilters = {
@@ -107,7 +116,7 @@ export class MarketplaceService {
 
     const { invoices, total } = await this.marketplaceRepository.findPublishedInvoices(
       normalizedFilters,
-      normalizedPagination,
+      normalizedPagination
     );
 
     const publicInvoices: PublicInvoice[] = invoices.map(this.toPublicInvoice);
@@ -132,7 +141,7 @@ export class MarketplaceService {
    */
   async getPublishedInvoicesByCursor(
     filters: MarketplaceFilters = {},
-    pagination: CursorPaginationOptions,
+    pagination: CursorPaginationOptions
   ): Promise<MarketplaceCursorPage> {
     const normalizedFilters: MarketplaceFilters = {
       status: filters.status || [InvoiceStatus.PUBLISHED],
@@ -146,7 +155,7 @@ export class MarketplaceService {
 
     if (!this.marketplaceRepository.findPublishedInvoicesByCursor) {
       throw new Error(
-        "getPublishedInvoicesByCursor: the configured MarketplaceRepositoryContract does not implement findPublishedInvoicesByCursor",
+        "getPublishedInvoicesByCursor: the configured MarketplaceRepositoryContract does not implement findPublishedInvoicesByCursor"
       );
     }
 
@@ -166,14 +175,31 @@ export class MarketplaceService {
   }
 
   private toPublicInvoice(invoice: Invoice): PublicInvoice {
+    const target = parseFloat(invoice.netAmount || invoice.amount || "0");
+    const raised = parseFloat(invoice.fundedAmount || "0");
+    const fundingPercentage = target > 0 ? Math.min(100, Math.round((raised / target) * 10000) / 100) : 0;
+    const yieldBps = Math.round(parseFloat(invoice.discountRate || "0") * 100);
+
     return {
       id: invoice.id,
+      invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
       customerName: invoice.customerName,
+      sellerName:
+        (invoice.seller as { businessName?: string; name?: string } | undefined)?.businessName ||
+        (invoice.seller as { businessName?: string; name?: string } | undefined)?.name ||
+        invoice.customerName,
       amount: invoice.amount,
+      faceValue: invoice.amount,
+      fundingTarget: invoice.netAmount || invoice.amount,
+      amountRaised: invoice.fundedAmount || "0",
+      fundedAmount: invoice.fundedAmount || "0",
       discountRate: invoice.discountRate,
+      yieldBps,
+      fundingPercentage,
       netAmount: invoice.netAmount,
       dueDate: invoice.dueDate,
+      fundingDeadline: invoice.dueDate,
       status: invoice.status,
       createdAt: invoice.createdAt,
     };
@@ -189,7 +215,7 @@ class TypeORMMarketplaceRepository implements MarketplaceRepositoryContract {
 
   async findPublishedInvoices(
     filters: MarketplaceFilters,
-    pagination: PaginationOptions,
+    pagination: PaginationOptions
   ): Promise<{ invoices: Invoice[]; total: number }> {
     const queryBuilder = this.repository
       .createQueryBuilder("invoice")
@@ -278,7 +304,7 @@ class TypeORMMarketplaceRepository implements MarketplaceRepositoryContract {
 
   async findPublishedInvoicesByCursor(
     filters: MarketplaceFilters,
-    pagination: CursorPaginationOptions,
+    pagination: CursorPaginationOptions
   ): Promise<{ invoices: Invoice[]; nextCursor: string | null; hasMore: boolean }> {
     const queryBuilder = this.repository
       .createQueryBuilder("invoice")

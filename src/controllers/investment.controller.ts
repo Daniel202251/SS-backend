@@ -39,7 +39,8 @@ export class InvestmentController {
         data: investment,
       });
     } catch (err: unknown) {
-      const statusCode = (err as { status?: number }).status || (err as { statusCode?: number }).statusCode || 400;
+      const statusCode =
+        (err as { status?: number }).status || (err as { statusCode?: number }).statusCode || 400;
       return res.status(statusCode).json({
         error: {
           code: (err as { code?: string }).code || "INTERNAL_ERROR",
@@ -63,7 +64,8 @@ export class InvestmentController {
         data: dashboard,
       });
     } catch (err: unknown) {
-      const statusCode = (err as { status?: number }).status || (err as { statusCode?: number }).statusCode || 500;
+      const statusCode =
+        (err as { status?: number }).status || (err as { statusCode?: number }).statusCode || 500;
       return res.status(statusCode).json({
         error: {
           code: (err as { code?: string }).code || "INTERNAL_ERROR",
@@ -87,7 +89,8 @@ export class InvestmentController {
         data: analytics,
       });
     } catch (err: unknown) {
-      const statusCode = (err as { status?: number }).status || (err as { statusCode?: number }).statusCode || 500;
+      const statusCode =
+        (err as { status?: number }).status || (err as { statusCode?: number }).statusCode || 500;
       return res.status(statusCode).json({
         error: {
           code: (err as { code?: string }).code || "INTERNAL_ERROR",

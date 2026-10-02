@@ -5,7 +5,7 @@ import {
 } from "@/services/stellar/contract-guard.service";
 
 const RPC_URL = "https://soroban-testnet.example/rpc";
-const CONTRACT_ID = "CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ";
+const CONTRACT_ID = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
 
 /**
  * Stand-in for a base64 ledger entry. The real decoder is XDR; these tests
@@ -146,7 +146,7 @@ describe("ContractGuardService", () => {
     });
 
     it("caches per contract rather than globally", async () => {
-      const other = "CBQHNAXSI55GX2GN6D67GK7BHVPSLJUGZQEU7WJ5LKR5PNUCGLIMAO4K";
+      const other = "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526";
       const fetchFn = jest.fn().mockResolvedValue(entriesResponse(false));
       const service = createService(fetchFn);
 

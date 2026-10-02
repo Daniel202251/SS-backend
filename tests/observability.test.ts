@@ -13,7 +13,7 @@ interface LogEntry {
 class CaptureLogger implements AppLogger {
   constructor(
     readonly entries: LogEntry[] = [],
-    private readonly defaultMetadata: LogMetadata = {},
+    private readonly defaultMetadata: LogMetadata = {}
   ) {}
 
   debug(message: string, metadata: LogMetadata = {}): void {
@@ -99,12 +99,10 @@ describe("Observability", () => {
 
     expect(firstResponse.headers["x-request-id"]).toEqual(expect.any(String));
     expect(secondResponse.headers["x-request-id"]).toEqual(expect.any(String));
-    expect(firstResponse.headers["x-request-id"]).not.toBe(
-      secondResponse.headers["x-request-id"],
-    );
+    expect(firstResponse.headers["x-request-id"]).not.toBe(secondResponse.headers["x-request-id"]);
 
     const requestLogs = logger.entries.filter(
-      (entry) => entry.level === "info" && entry.message === "HTTP request completed.",
+      (entry) => entry.level === "info" && entry.message === "HTTP request completed."
     );
 
     expect(requestLogs).toHaveLength(2);
@@ -112,7 +110,7 @@ describe("Observability", () => {
       expect.arrayContaining([
         firstResponse.headers["x-request-id"],
         secondResponse.headers["x-request-id"],
-      ]),
+      ])
     );
   });
 
@@ -134,7 +132,34 @@ describe("Observability", () => {
     expect(response.body.requestId).toBe("client-request-id");
 
     expect(response.body.data?.requestId).toBe("client-request-id");
+  });
 
+  it("logs requests that fail before reaching a route handler, with a correlation ID", async () => {
+    const logger = new CaptureLogger();
+    const app = createApp({
+      authService: createAuthServiceStub(),
+      logger,
+      metricsEnabled: true,
+      metricsRegistry: new MetricsRegistry(),
+    });
+
+    // Malformed JSON is rejected by the body parser, so this only shows up
+    // in the access log if the logging middleware runs ahead of it.
+    const response = await request(app)
+      .post("/api/v1/auth/challenge")
+      .set("Content-Type", "application/json")
+      .send("{not json");
+
+    const correlationId = response.headers["x-correlation-id"];
+    expect(correlationId).toEqual(expect.any(String));
+
+    const requestLog = logger.entries.find((entry) => entry.message === "HTTP request completed.");
+    expect(requestLog?.metadata).toMatchObject({
+      correlationId,
+      method: "POST",
+      path: "/api/v1/auth/challenge",
+      statusCode: response.status,
+    });
   });
 
   it("logs structured auth failure metadata after a 401 response", async () => {
@@ -149,7 +174,7 @@ describe("Observability", () => {
     await request(app).get("/api/v1/auth/me").expect(401);
 
     const authFailureLog = logger.entries.find(
-      (entry) => entry.level === "warn" && entry.message === "API authentication failure.",
+      (entry) => entry.level === "warn" && entry.message === "API authentication failure."
     );
 
     expect(authFailureLog).toBeDefined();
@@ -177,23 +202,19 @@ describe("Observability", () => {
     const metricsResponse = await request(app).get("/metrics").expect(200);
 
     expect(metricsResponse.headers["content-type"]).toContain("text/plain");
+    expect(metricsResponse.text).toContain("# TYPE stellarsettle_http_requests_total counter");
     expect(metricsResponse.text).toContain(
-      "# TYPE stellarsettle_http_requests_total counter",
+      'stellarsettle_http_requests_total{method="GET",route="/health",status_class="2xx"} 1'
     );
     expect(metricsResponse.text).toContain(
-      'stellarsettle_http_requests_total{method="GET",route="/health",status_class="2xx"} 1',
+      'stellarsettle_http_requests_total{method="GET",route="/api/v1/auth/me",status_class="4xx"} 1'
     );
     expect(metricsResponse.text).toContain(
-      'stellarsettle_http_requests_total{method="GET",route="/api/v1/auth/me",status_class="4xx"} 1',
+      'stellarsettle_http_requests_total{method="GET",route="unmatched",status_class="4xx"} 1'
     );
     expect(metricsResponse.text).toContain(
-      'stellarsettle_http_requests_total{method="GET",route="unmatched",status_class="4xx"} 1',
+      "# TYPE stellarsettle_http_request_duration_ms histogram"
     );
-    expect(metricsResponse.text).toContain(
-      "# TYPE stellarsettle_http_request_duration_ms histogram",
-    );
-    expect(metricsResponse.text).toContain(
-      "# TYPE stellarsettle_process_uptime_seconds gauge",
-    );
+    expect(metricsResponse.text).toContain("# TYPE stellarsettle_process_uptime_seconds gauge");
   });
 });

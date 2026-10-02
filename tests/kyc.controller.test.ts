@@ -12,7 +12,10 @@ function response() {
 
 describe("KYC webhook controller", () => {
   it("rejects an invalid provider signature", async () => {
-    const service = { verifyWebhookSignature: jest.fn().mockReturnValue(false), processWebhook: jest.fn() };
+    const service = {
+      verifyWebhookSignature: jest.fn().mockReturnValue(false),
+      processWebhook: jest.fn(),
+    };
     const controller = createKycController(service as any);
     const res = response();
     await controller.webhook({ body: Buffer.from("{}"), header: () => "bad" } as any, res);

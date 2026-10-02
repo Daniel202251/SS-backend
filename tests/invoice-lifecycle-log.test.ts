@@ -34,7 +34,7 @@ describe("logInvoiceTransition", () => {
         actor_wallet: "GABC...WXYZ",
         reason: "fully_funded",
         transitioned_at: expect.any(String),
-      }),
+      })
     );
   });
 

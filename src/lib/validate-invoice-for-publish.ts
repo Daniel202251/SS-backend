@@ -35,7 +35,7 @@ export const MIN_FACE_VALUE_XLM = new Decimal("100");
  */
 export function validateFundingDeadline(
   dueDate: Date | string,
-  now: Date = new Date(),
+  now: Date = new Date()
 ): ValidationError | null {
   const deadline = new Date(dueDate);
 
@@ -75,7 +75,10 @@ export function validateFundingDeadline(
  * `now` is threaded through to {@link validateFundingDeadline} for tests only;
  * production callers use the default server clock.
  */
-export function validateInvoiceForPublish(invoice: Invoice, now: Date = new Date()): ValidationError[] {
+export function validateInvoiceForPublish(
+  invoice: Invoice,
+  now: Date = new Date()
+): ValidationError[] {
   const errors: ValidationError[] = [];
 
   const faceValue = new Decimal(invoice.amount);

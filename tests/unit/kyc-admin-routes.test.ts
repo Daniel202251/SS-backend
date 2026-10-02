@@ -107,7 +107,9 @@ describe("KYC admin routes — structured logging", () => {
     });
 
     it("falls back to the reviewer id when the reviewer has no user record", async () => {
-      stubUsers([{ id: "user-1", stellarAddress: "GABCDEFGHIJKLMNOP", kycStatus: KYCStatus.PENDING }]);
+      stubUsers([
+        { id: "user-1", stellarAddress: "GABCDEFGHIJKLMNOP", kycStatus: KYCStatus.PENDING },
+      ]);
       req.body = { userId: "user-1", reviewerId: "external-reviewer" };
 
       await approveKYC(req, res, mockDataSource);
