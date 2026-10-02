@@ -1,11 +1,19 @@
 import type { Request, Response } from "express";
 import type { NotificationService } from "../services/notification.service";
+import type { Notification } from "../models/Notification.model";
 import { NotificationType } from "../types/enums";
 
 export function createNotificationController(notificationService: NotificationService) {
   return {
     list: async (req: Request, res: Response): Promise<void> => {
-      const userId = req.user!.id;
+      const user = req.user;
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const userId = user.id;
+      const walletAddress = user.stellarAddress || user.id;
 
       const page = Math.max(1, parseInt((req.query.page as string) ?? "1", 10) || 1);
       const limit = Math.min(
@@ -22,13 +30,14 @@ export function createNotificationController(notificationService: NotificationSe
       const type =
         typeParam && Object.values(NotificationType).includes(typeParam as NotificationType)
           ? (typeParam as NotificationType)
-          : undefined;
+          : (typeParam as unknown as NotificationType);
 
       const sortOrder = (req.query.sort as string) === "asc" ? ("asc" as const) : ("desc" as const);
       const cursor = req.query.cursor as string | undefined;
 
       const result = await notificationService.listNotifications({
         userId,
+        walletAddress,
         page,
         limit,
         read,
@@ -37,11 +46,54 @@ export function createNotificationController(notificationService: NotificationSe
         cursor,
       });
 
-      res.status(200).json(result);
+      // Ensure every item has createdAt and read boolean
+      const data = result.data.map((item: Notification) => {
+        if (!item.createdAt && item.timestamp) {
+          item.createdAt = item.timestamp;
+        }
+        if (!item.timestamp && item.createdAt) {
+          item.timestamp = item.createdAt;
+        }
+        return item;
+      });
+
+      res.status(200).json({
+        ...result,
+        data,
+        notifications: data,
+      });
+    },
+
+    readAll: async (req: Request, res: Response): Promise<void> => {
+      const user = req.user;
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const userId = user.id;
+      const walletAddress = user.stellarAddress || user.id;
+
+      const svc = notificationService as unknown as {
+        markAllNotificationsRead?: (userId: string, walletAddress?: string) => Promise<unknown>;
+        markAllRead?: (userId: string, walletAddress?: string) => Promise<unknown>;
+      };
+      if (typeof svc.markAllNotificationsRead === "function") {
+        await svc.markAllNotificationsRead(userId, walletAddress);
+      } else if (typeof svc.markAllRead === "function") {
+        await svc.markAllRead(userId, walletAddress);
+      }
+
+      res.status(204).send();
     },
 
     markRead: async (req: Request, res: Response): Promise<void> => {
-      const userId = req.user!.id;
+      const user = req.user;
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      const userId = user.id;
       const id = req.params.id as string;
 
       const notification = await notificationService.markNotificationRead(id, userId);

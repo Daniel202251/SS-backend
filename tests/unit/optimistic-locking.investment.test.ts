@@ -42,7 +42,7 @@ describe("Investment optimistic locking concurrency (issue #143)", () => {
     seller: {} as User,
     investments: [],
     transactions: [],
-  } as Invoice);
+  } as unknown as Invoice);
 
   const createMockInvestment = (overrides: Partial<Investment> = {}): Investment => ({
     id: `inv-${crypto.randomUUID()}`,
@@ -58,41 +58,46 @@ describe("Investment optimistic locking concurrency (issue #143)", () => {
     updatedAt: new Date(),
     deletedAt: null,
     version: 1,
-    invoice: {} as Invoice,
-    investor: {} as User,
+    invoice: {} as unknown as Invoice,
+    investor: {} as unknown as User,
     transactions: [],
     ...overrides,
-  } as Investment);
+  } as unknown as Investment);
 
   beforeEach(() => {
     const invoices = new Map<string, Invoice>();
     const investments = new Map<string, Investment>();
 
     mockInvoiceRepository = {
-      findOne: jest.fn().mockResolvedValue(createMockInvoice()),
+      findOne: jest.fn().mockImplementation(async () => invoices.get(invoiceId) ?? createMockInvoice()),
       save: jest.fn().mockImplementation(async (invoice: Invoice) => {
-        invoices.set(invoice.id, { ...invoice, version: invoice.version + 1 });
+        invoices.set(invoice.id, { ...invoice, version: (invoice.version ?? 1) + 1 } as unknown as Invoice);
         return invoices.get(invoice.id)!;
       }),
       createQueryBuilder: jest.fn().mockReturnValue({
         setLock: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
-        getOne: jest.fn().mockResolvedValue(createMockInvoice()),
+        getOne: jest.fn().mockImplementation(async () => invoices.get(invoiceId) ?? createMockInvoice()),
       }),
     };
 
     mockInvestmentRepository = {
-      find: jest.fn().mockResolvedValue([]),
+      find: jest.fn().mockImplementation(async () => Array.from(investments.values())),
       save: jest.fn().mockImplementation(async (investment: Investment) => {
-        investments.set(investment.id, { ...investment, version: investment.version + 1 });
+        investments.set(investment.id, { ...investment, version: (investment.version ?? 1) + 1 } as unknown as Investment);
         return investments.get(investment.id)!;
       }),
-      create: jest.fn().mockImplementation((data: Partial<Investment>) => data as Investment),
+      create: jest.fn().mockImplementation((data: Partial<Investment>) => ({
+        id: `inv-${crypto.randomUUID()}`,
+        status: InvestmentStatus.PENDING,
+        createdAt: new Date(),
+        ...data,
+      } as unknown as Investment)),
       createQueryBuilder: jest.fn().mockReturnValue({
         leftJoinAndSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
-        getMany: jest.fn().mockResolvedValue([]),
+        getMany: jest.fn().mockImplementation(async () => Array.from(investments.values())),
       }),
     };
 
@@ -102,12 +107,22 @@ describe("Investment optimistic locking concurrency (issue #143)", () => {
         if (entity === Investment) return mockInvestmentRepository;
         return {};
       }),
-      find: jest.fn().mockResolvedValue([]),
-      save: jest.fn().mockImplementation(async (entity: any) => {
-        if (entity instanceof Investment) {
+      createQueryBuilder: jest.fn((entity: any) => {
+        if (entity === Invoice) return mockInvoiceRepository.createQueryBuilder();
+        if (entity === Investment) return mockInvestmentRepository.createQueryBuilder();
+        return {};
+      }),
+      find: jest.fn().mockImplementation(async (entity: any, options: any) => {
+        if (entity === Investment) return mockInvestmentRepository.find(options);
+        if (entity === Invoice) return mockInvoiceRepository.find(options);
+        return [];
+      }),
+      save: jest.fn().mockImplementation(async (targetOrEntity: any, maybeEntity?: any) => {
+        const entity = maybeEntity ?? targetOrEntity;
+        if (entity && (entity.investmentAmount !== undefined || entity.investorId !== undefined)) {
           return mockInvestmentRepository.save(entity);
         }
-        if (entity instanceof Invoice) {
+        if (entity && (entity.invoiceNumber !== undefined || entity.netAmount !== undefined)) {
           return mockInvoiceRepository.save(entity);
         }
         return entity;
@@ -117,17 +132,37 @@ describe("Investment optimistic locking concurrency (issue #143)", () => {
         return data;
       }),
       transaction: jest.fn().mockImplementation(async (callback: any) => {
-        return await callback(mockEntityManager);
+        const prevLock = transactionLock;
+        let releaseLock: () => void;
+        transactionLock = new Promise<void>((resolve) => {
+          releaseLock = resolve;
+        });
+        await prevLock;
+        try {
+          return await callback(mockEntityManager);
+        } finally {
+          releaseLock!();
+        }
       }),
     };
+
+    let transactionLock = Promise.resolve();
 
     mockDataSource = {
       getRepository: jest.fn((entity: any) => {
         if (entity === Invoice) return mockInvoiceRepository;
         if (entity === Investment) return mockInvestmentRepository;
+        if (entity?.name === "InvestorAcknowledgement") {
+          return {
+            findOne: jest.fn().mockResolvedValue({ walletAddress: "test", termsVersion: "1", acknowledgedAt: new Date() }),
+            find: jest.fn().mockResolvedValue([]),
+          };
+        }
         return {};
       }),
-      transaction: mockEntityManager.transaction,
+      transaction: jest.fn().mockImplementation(async (callback: any) => {
+        return await mockEntityManager.transaction(callback);
+      }),
     };
 
     investmentService = createInvestmentService(mockDataSource as DataSource);
@@ -179,7 +214,7 @@ describe("Investment optimistic locking concurrency (issue #143)", () => {
           investmentAmount,
           investorWallet: `GINVESTOR${i.toString().padStart(2, "0")}`,
         })
-        .then(() => ({ success: true }))
+        .then(() => ({ success: true, error: undefined, code: undefined }))
         .catch((err: Error) => ({ success: false, error: err.message, code: (err as any).code }))
     );
 
@@ -202,7 +237,7 @@ describe("Investment optimistic locking concurrency (issue #143)", () => {
       callCount++;
       if (callCount < maxCalls) {
         const { OptimisticLockVersionMismatchError } = await import("typeorm");
-        throw new OptimisticLockVersionMismatchError("Version mismatch");
+        throw new OptimisticLockVersionMismatchError("Invoice", 1, 2);
       }
       return await callback(mockEntityManager);
     });
@@ -222,7 +257,7 @@ describe("Investment optimistic locking concurrency (issue #143)", () => {
     // Mock transaction to always fail with OptimisticLockVersionMismatchError
     mockEntityManager.transaction.mockImplementation(async () => {
       const { OptimisticLockVersionMismatchError } = await import("typeorm");
-      throw new OptimisticLockVersionMismatchError("Version mismatch");
+      throw new OptimisticLockVersionMismatchError("Invoice", 1, 2);
     });
 
     await expect(

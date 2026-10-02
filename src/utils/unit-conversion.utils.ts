@@ -1,4 +1,7 @@
+import Decimal from "decimal.js";
 import { stroopsToXlm as stellarStroopsToXlm } from "../lib/stellar-format";
+
+const STROOP_DIVISOR = new Decimal(10_000_000);
 
 /**
  * Converts an amount in stroops (1 XLM = 10,000,000 stroops) to a human-readable

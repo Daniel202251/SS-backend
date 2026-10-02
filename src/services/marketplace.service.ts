@@ -20,12 +20,21 @@ export interface PaginationOptions {
 
 export interface PublicInvoice {
   id: string;
+  invoiceId?: string;
   invoiceNumber: string;
   customerName: string;
+  sellerName?: string;
   amount: string;
+  faceValue?: string;
+  fundingTarget?: string;
+  amountRaised?: string;
+  fundedAmount?: string;
   discountRate: string;
+  yieldBps?: number;
+  fundingPercentage?: number;
   netAmount: string;
   dueDate: Date;
+  fundingDeadline?: Date;
   status: InvoiceStatus;
   createdAt: Date;
   // Excluded: sellerId, ipfsHash, riskScore, smartContractId, updatedAt, deletedAt
@@ -166,14 +175,31 @@ export class MarketplaceService {
   }
 
   private toPublicInvoice(invoice: Invoice): PublicInvoice {
+    const target = parseFloat(invoice.netAmount || invoice.amount || "0");
+    const raised = parseFloat(invoice.fundedAmount || "0");
+    const fundingPercentage = target > 0 ? Math.min(100, Math.round((raised / target) * 10000) / 100) : 0;
+    const yieldBps = Math.round(parseFloat(invoice.discountRate || "0") * 100);
+
     return {
       id: invoice.id,
+      invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
       customerName: invoice.customerName,
+      sellerName:
+        (invoice.seller as { businessName?: string; name?: string } | undefined)?.businessName ||
+        (invoice.seller as { businessName?: string; name?: string } | undefined)?.name ||
+        invoice.customerName,
       amount: invoice.amount,
+      faceValue: invoice.amount,
+      fundingTarget: invoice.netAmount || invoice.amount,
+      amountRaised: invoice.fundedAmount || "0",
+      fundedAmount: invoice.fundedAmount || "0",
       discountRate: invoice.discountRate,
+      yieldBps,
+      fundingPercentage,
       netAmount: invoice.netAmount,
       dueDate: invoice.dueDate,
+      fundingDeadline: invoice.dueDate,
       status: invoice.status,
       createdAt: invoice.createdAt,
     };

@@ -78,6 +78,7 @@ function makeSeller(kycStatus: KYCStatus | null): User {
     email: "seller@example.com",
     userType: UserType.SELLER,
     kycStatus: kycStatus as unknown as KYCStatus, // null simulates a missing/unset KYC record
+    isKycVerified: kycStatus === KYCStatus.APPROVED,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -86,7 +87,7 @@ function makeSeller(kycStatus: KYCStatus | null): User {
     transactions: [],
     kycVerifications: [],
     notifications: [],
-  } as User;
+  } as unknown as User;
 }
 
 /**
@@ -97,7 +98,7 @@ function makeSeller(kycStatus: KYCStatus | null): User {
  */
 function seedPublishableInvoice(repo: InMemoryInvoiceRepository, seller: User): Invoice {
   const now = new Date();
-  const invoice: Invoice = {
+  const invoice = {
     id: crypto.randomUUID(),
     sellerId: seller.id,
     invoiceNumber: `INV-${crypto.randomBytes(4).toString("hex")}`,
@@ -117,7 +118,7 @@ function seedPublishableInvoice(repo: InMemoryInvoiceRepository, seller: User): 
     seller,
     investments: [],
     transactions: [],
-  } as Invoice;
+  } as unknown as Invoice;
 
   repo.save(invoice);
   return invoice;

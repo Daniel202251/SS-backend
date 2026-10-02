@@ -102,6 +102,7 @@ export class VerifyPaymentService {
     this.fetchImplementation = dependencies.fetchImplementation ?? fetch;
     this.sleep =
       dependencies.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.logger = dependencies.logger ?? VerifyPaymentService.NOOP_LOGGER;
   }
 
   async verifyPayment(input: PaymentVerificationInput): Promise<PaymentVerificationResult> {
@@ -268,11 +269,17 @@ export class VerifyPaymentService {
     );
 
     const paymentOperations = (operations._embedded?.records ?? [])
-      .map((operation, index) => ({
-        ...normalizeHorizonPayment(operation),
-        operationIndex: index,
-      }))
-      .filter((operation) => operation.type === "payment");
+      .map((operation, index) => {
+        const record = operation as unknown as Record<string, unknown>;
+        if (record?.type !== "payment") {
+          return null;
+        }
+        return {
+          ...normalizeHorizonPayment(operation),
+          operationIndex: index,
+        };
+      })
+      .filter((operation): operation is NonNullable<typeof operation> => operation !== null);
 
     const matchingOperations = paymentOperations.filter((operation) => {
       if (operationIndex !== undefined && operation.operationIndex !== operationIndex) {

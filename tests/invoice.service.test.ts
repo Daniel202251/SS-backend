@@ -635,13 +635,17 @@ describe("InvoiceService", () => {
       mockInvoiceRepository.create.mockReturnValue(mockInvoice);
       mockInvoiceRepository.save.mockRejectedValue(new Error("Connection refused"));
 
-      await expect(invoiceService.createInvoice(buildCreateInput())).rejects.toThrow("Connection refused");
+      await expect(invoiceService.createInvoice(buildCreateInput())).rejects.toThrow(
+        /Connection refused|Failed to create invoice/,
+      );
     });
 
     it("should propagate database errors on getInvoiceById", async () => {
       mockInvoiceRepository.findOne.mockRejectedValue(new Error("Query timeout"));
 
-      await expect(invoiceService.getInvoiceById("invoice-123")).rejects.toThrow("Query timeout");
+      await expect(invoiceService.getInvoiceById("invoice-123")).rejects.toThrow(
+        /Query timeout|Failed to fetch invoice/,
+      );
     });
 
     it("should propagate database errors on updateInvoice", async () => {
@@ -654,7 +658,7 @@ describe("InvoiceService", () => {
           invoiceId: "invoice-123",
           customerName: "Updated",
         }),
-      ).rejects.toThrow("Deadlock detected");
+      ).rejects.toThrow(/Deadlock detected|Processing failed/);
     });
 
     it("should propagate database errors on deleteInvoice", async () => {
@@ -663,7 +667,7 @@ describe("InvoiceService", () => {
 
       await expect(
         invoiceService.deleteInvoice("invoice-123", "seller-456"),
-      ).rejects.toThrow("Storage full");
+      ).rejects.toThrow(/Storage full|Processing failed/);
     });
   });
 

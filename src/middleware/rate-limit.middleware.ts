@@ -47,7 +47,7 @@ const DEFAULT_GLOBAL_LIMIT: RateLimitOptions = {
 
 const DEFAULT_CHALLENGE_LIMIT: RateLimitOptions = {
   windowMs: 60 * 1000,
-  max: 5,
+  max: 10,
   message: "Too many challenge requests, please try again later.",
   code: "CHALLENGE_RATE_LIMIT_EXCEEDED",
 };
