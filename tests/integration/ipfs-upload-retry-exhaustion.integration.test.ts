@@ -34,6 +34,8 @@ describe("IPFS upload retry exhaustion (issue #218)", () => {
   const ipfsConfig = {
     apiUrl: "https://api.pinata.cloud",
     jwt: "super-secret-pinata-jwt-should-never-leak",
+    gatewayUrl: "https://gateway.pinata.cloud",
+    gatewayTokenTtlSeconds: 3600,
     maxFileSizeMB: 10,
     allowedMimeTypes: ["application/pdf", "image/jpeg", "image/png"],
     uploadRateLimit: {
