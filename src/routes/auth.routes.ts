@@ -22,17 +22,20 @@ const _SIGNATURE_PATTERN = /^[A-Za-z0-9+/=:_\-.]+$/;
 
 type AsyncRouteHandler = (req: Request, res: Response, next: NextFunction) => Promise<void> | void;
 
-const publicKeySchema = Joi.string().trim().required();
+const publicKeySchema = Joi.string().trim();
 
 const challengeSchema = Joi.object({
   publicKey: publicKeySchema,
-}).unknown(true);
+  wallet: publicKeySchema,
+}).or("publicKey", "wallet").unknown(true);
 
 const verifySchema = Joi.object({
   publicKey: publicKeySchema,
-  nonce: Joi.string().trim().required(),
+  wallet: publicKeySchema,
+  nonce: Joi.string().trim(),
+  challenge: Joi.string().trim(),
   signature: Joi.string().trim().required(),
-}).unknown(true);
+}).or("publicKey", "wallet").or("nonce", "challenge").unknown(true);
 
 function wrapAuthHandler(
   routeName: string,
@@ -121,8 +124,6 @@ function createIdempotencyMiddleware() {
     next();
   };
 }
-
-
 
 function validateQuery(schema: Joi.Schema): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction) => {

@@ -20,7 +20,8 @@ import { validateInvoiceForPublish } from "./validate-invoice-for-publish";
  *     → funded → settled
  *
  * with `rejected` reachable from draft/pending and `cancelled` as an escape
- * hatch before settlement. Sellers may still publish a draft directly, which
+ * hatch before settlement. `failed` is set by the maturity job when a
+ * published invoice is still not fully funded at its due date. Sellers may still publish a draft directly, which
  * is the existing self-serve flow; `pending` is the path for invoices that go
  * through admin review first.
  *
@@ -118,6 +119,8 @@ const TRANSITION_RULES: readonly TransitionRule[] = Object.freeze([
     guard: fullyFunded,
   },
   { from: InvoiceStatus.FUNDED, to: InvoiceStatus.SETTLED, roles: ["admin", "system"] },
+  // Maturity job: still not fully funded when the due date arrives.
+  { from: InvoiceStatus.PUBLISHED, to: InvoiceStatus.FAILED, roles: ["system"] },
   { from: InvoiceStatus.DRAFT, to: InvoiceStatus.CANCELLED, roles: ["seller", "admin"] },
   { from: InvoiceStatus.PENDING, to: InvoiceStatus.CANCELLED, roles: ["seller", "admin"] },
   { from: InvoiceStatus.PUBLISHED, to: InvoiceStatus.CANCELLED, roles: ["admin"] },
@@ -390,6 +393,10 @@ const SELLER_MESSAGES: Partial<
   [InvoiceStatus.CANCELLED]: (invoice) => [
     "Invoice Cancelled",
     `Your invoice ${invoice.invoiceNumber} has been cancelled.`,
+  ],
+  [InvoiceStatus.FAILED]: (invoice) => [
+    "Invoice Failed",
+    `Your invoice ${invoice.invoiceNumber} reached maturity without being fully funded.`,
   ],
 };
 

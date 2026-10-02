@@ -67,6 +67,7 @@ export function createRequestObservabilityMiddleware(
       const route = resolveRouteLabel(req);
       const statusClass = `${Math.floor(res.statusCode / 100)}xx`;
       const metadata = {
+        traceId: requestId,
         correlationId: requestId,
         requestId,
         method: req.method,

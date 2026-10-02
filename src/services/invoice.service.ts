@@ -70,6 +70,8 @@ export interface CreateInvoiceInput {
   sellerId: string;
   invoiceNumber: string;
   customerName: string;
+  issuerName?: string;
+  description?: string;
   amount: string;
   discountRate: string;
   dueDate: Date;
@@ -81,6 +83,8 @@ export interface UpdateInvoiceInput {
   sellerId: string;
   invoiceId: string;
   customerName?: string;
+  issuerName?: string;
+  description?: string;
   amount?: string;
   discountRate?: string;
   dueDate?: Date;
@@ -152,6 +156,8 @@ export interface InvoiceDTO {
   sellerId: string;
   invoiceNumber: string;
   customerName: string;
+  issuerName: string | null;
+  description: string | null;
   amount: string;
   discountRate: string;
   netAmount: string;
@@ -291,6 +297,8 @@ export class InvoiceService {
         sellerId: input.sellerId,
         invoiceNumber,
         customerName: input.customerName.trim().slice(0, 255),
+        issuerName: input.issuerName?.trim().slice(0, 255) || null,
+        description: input.description?.trim() || null,
         amount: input.amount,
         discountRate: input.discountRate,
         netAmount,
@@ -485,6 +493,40 @@ export class InvoiceService {
   }
 
   /**
+   * List pending invoices for admin review with bounded offset pagination
+   */
+  async getPendingInvoicesForAdmin(options: {
+    limit?: number;
+    skip?: number;
+    status?: InvoiceStatus;
+  }): Promise<{ invoices: InvoiceDTO[]; total: number; limit: number; hasMore: boolean }> {
+    const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
+    const skip = Math.max(0, Math.min(options.skip ?? 0, 10000));
+
+    const where: FindOptionsWhere<Invoice> = {
+      deletedAt: IsNull(),
+      status: options.status ?? InvoiceStatus.PENDING,
+    };
+
+    const [invoices, total] = await Promise.all([
+      this.invoiceRepository.find({
+        where,
+        skip,
+        take: limit,
+        order: { createdAt: "DESC" },
+      }),
+      this.invoiceRepository.count({ where }),
+    ]);
+
+    return {
+      invoices: invoices.map((inv) => this.toDTO(inv)),
+      total,
+      limit,
+      hasMore: skip + invoices.length < total,
+    };
+  }
+
+  /**
    * Update an invoice (only draft invoices can be updated)
    */
   async updateInvoice(input: UpdateInvoiceInput): Promise<InvoiceDTO> {
@@ -518,6 +560,12 @@ export class InvoiceService {
       // Update fields
       if (input.customerName) {
         invoice.customerName = input.customerName;
+      }
+      if (input.issuerName !== undefined) {
+        invoice.issuerName = input.issuerName.trim().slice(0, 255) || null;
+      }
+      if (input.description !== undefined) {
+        invoice.description = input.description.trim() || null;
       }
       if (input.amount) {
         invoice.amount = input.amount;
@@ -959,7 +1007,7 @@ export class InvoiceService {
     }
 
     if (invoice.sellerId !== sellerId) {
-      throw new ServiceError("unauthorized_invoice_access", "You can only view investors for your own invoices", 403);
+      throw new ServiceError("forbidden", "You can only view investors for your own invoices", 403);
     }
 
     if (invoice.status === InvoiceStatus.DRAFT) {
@@ -1055,6 +1103,8 @@ export class InvoiceService {
       sellerId: invoice.sellerId,
       invoiceNumber: invoice.invoiceNumber,
       customerName: invoice.customerName,
+      issuerName: invoice.issuerName ?? null,
+      description: invoice.description ?? null,
       amount: invoice.amount,
       discountRate: invoice.discountRate,
       netAmount: invoice.netAmount,

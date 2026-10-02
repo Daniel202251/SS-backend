@@ -22,24 +22,16 @@ import { AppError } from "../utils/http-error";
  * Frozen state transition map optimized for performance.
  * Prevents accidental mutations and enables faster lookups.
  */
-export const VALID_INVOICE_TRANSITIONS: Record<InvoiceStatus, readonly InvoiceStatus[]> =
-  Object.freeze({
-    [InvoiceStatus.DRAFT]: Object.freeze([
-      InvoiceStatus.PUBLISHED,
-      InvoiceStatus.CANCELLED,
-      InvoiceStatus.REJECTED,
-    ]),
-    [InvoiceStatus.PENDING]: Object.freeze([
-      InvoiceStatus.PUBLISHED,
-      InvoiceStatus.CANCELLED,
-      InvoiceStatus.REJECTED,
-    ]),
-    [InvoiceStatus.PUBLISHED]: Object.freeze([InvoiceStatus.FUNDED, InvoiceStatus.CANCELLED]),
-    [InvoiceStatus.FUNDED]: Object.freeze([InvoiceStatus.SETTLED, InvoiceStatus.CANCELLED]),
-    [InvoiceStatus.SETTLED]: Object.freeze([InvoiceStatus.CANCELLED]),
-    [InvoiceStatus.CANCELLED]: Object.freeze([]),
-    [InvoiceStatus.REJECTED]: Object.freeze([]),
-  });
+export const VALID_INVOICE_TRANSITIONS: Record<InvoiceStatus, readonly InvoiceStatus[]> = Object.freeze({
+  [InvoiceStatus.DRAFT]: Object.freeze([InvoiceStatus.PUBLISHED, InvoiceStatus.CANCELLED, InvoiceStatus.REJECTED]),
+  [InvoiceStatus.PENDING]: Object.freeze([InvoiceStatus.PUBLISHED, InvoiceStatus.CANCELLED, InvoiceStatus.REJECTED]),
+  [InvoiceStatus.PUBLISHED]: Object.freeze([InvoiceStatus.FUNDED, InvoiceStatus.CANCELLED, InvoiceStatus.FAILED]),
+  [InvoiceStatus.FUNDED]: Object.freeze([InvoiceStatus.SETTLED, InvoiceStatus.CANCELLED]),
+  [InvoiceStatus.SETTLED]: Object.freeze([InvoiceStatus.CANCELLED]),
+  [InvoiceStatus.CANCELLED]: Object.freeze([]),
+  [InvoiceStatus.REJECTED]: Object.freeze([]),
+  [InvoiceStatus.FAILED]: Object.freeze([]),
+});
 
 /**
  * Validation constraints for invoice fields.
@@ -59,6 +51,8 @@ export interface PublicInvoiceDTO {
   sellerId: string;
   invoiceNumber: string;
   customerName: string;
+  issuerName: string | null;
+  description: string | null;
   amount: string;
   discountRate: string;
   netAmount: string;
@@ -69,7 +63,6 @@ export interface PublicInvoiceDTO {
   smartContractId: string | null;
   rejectionReason: string | null;
   title?: string | null;
-  description?: string | null;
   faceValue?: string | null;
   fundingTarget?: string | null;
   yieldBps?: number | null;
@@ -100,6 +93,14 @@ export class Invoice {
   @Column({ name: "customer_name", type: "varchar", length: 255 })
   @Index("idx_invoices_customer_name")
   customerName!: string;
+
+  /** Business issuing the invoice; full-text searchable (weight A). */
+  @Column({ name: "issuer_name", type: "varchar", length: 255, nullable: true })
+  issuerName!: string | null;
+
+  /** Free-text description; full-text searchable (weight B). */
+  @Column({ type: "text", nullable: true })
+  description!: string | null;
 
   @Column({ type: "decimal", precision: 18, scale: 4, default: 0 })
   amount!: string;
@@ -153,9 +154,6 @@ export class Invoice {
   @Column({ type: "varchar", length: 255, nullable: true })
   title!: string | null;
 
-  @Column({ type: "text", nullable: true })
-  description!: string | null;
-
   @Column({ name: "face_value", type: "decimal", precision: 18, scale: 4, nullable: true })
   faceValue!: string | null;
 
@@ -200,6 +198,10 @@ export class Invoice {
   investorReturns?: import("./InvestorReturn.model").InvestorReturn[];
 
   settlementRemainders?: import("./SettlementRemainder.model").SettlementRemainder[];
+
+  secondaryListings?: import("./SecondaryListing.model").SecondaryListing[];
+
+  watchlistEntries?: import("./Watchlist.model").Watchlist[];
 
   /**
    * Calculates the exact net amount using arbitrary-precision decimal arithmetic.
@@ -746,6 +748,8 @@ export class Invoice {
         sellerId: invoice.sellerId,
         invoiceNumber: invoice.invoiceNumber,
         customerName: invoice.customerName,
+        issuerName: invoice.issuerName ?? null,
+        description: invoice.description ?? null,
         amount: invoice.amount,
         discountRate: invoice.discountRate,
         netAmount: invoice.netAmount,

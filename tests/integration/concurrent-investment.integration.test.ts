@@ -4,6 +4,7 @@ import { Decimal } from "decimal.js";
 import { InvestmentService } from "../../src/services/investment.service";
 import { Invoice } from "../../src/models/Invoice.model";
 import { Investment } from "../../src/models/Investment.model";
+import { InvestorAcknowledgement } from "../../src/models/InvestorAcknowledgement.model";
 import { InvoiceStatus, InvestmentStatus } from "../../src/types/enums";
 
 /**
@@ -63,7 +64,20 @@ function createSerializedFakeDataSource(invoice: Invoice) {
       txChain = next.catch(() => {});
       return next;
     },
+    getRepository: () => ({
+      findOne: jest.fn().mockResolvedValue({ walletAddress: "test", termsVersion: "1", acknowledgedAt: new Date() }),
+      find: jest.fn().mockResolvedValue([]),
+    }),
   } as unknown as DataSource;
+
+  // Issue #473 â€” the accreditation gate looks the investor's terms
+  // acknowledgement up before creating the investment.
+  (dataSource as unknown as { getRepository: (e: unknown) => unknown }).getRepository = (
+    entity: unknown
+  ) =>
+    entity === InvestorAcknowledgement
+      ? { findOne: async () => ({ acknowledgedAt: new Date() }) }
+      : manager;
 
   return { dataSource, invoices, investments };
 }
@@ -99,7 +113,7 @@ describe("Concurrent investment: total committed amount must not exceed invoice 
   it("allows exactly one of two simultaneous investments when only one slot remains", async () => {
     // Invoice with 700 already committed; remaining capacity = 300.
     // Both requests ask for 200, so the first fits (900 total < 1000 netAmount) and the
-    // second finds only 100 remaining — not enough — and fails with INSUFFICIENT_CAPACITY.
+    // second finds only 100 remaining â€” not enough â€” and fails with INSUFFICIENT_CAPACITY.
     // The invoice is NOT fully funded by the first request, so status stays PUBLISHED.
     const invoice = createInvoice();
     const { dataSource, investments } = createSerializedFakeDataSource(invoice);
@@ -166,7 +180,7 @@ describe("Concurrent investment: total committed amount must not exceed invoice 
     const investorA = { id: crypto.randomUUID(), wallet: INVESTOR_A_WALLET };
     const investorB = { id: crypto.randomUUID(), wallet: INVESTOR_B_WALLET };
 
-    // Both ask for 400 — only one fits (500 capacity)
+    // Both ask for 400 â€” only one fits (500 capacity)
     await Promise.allSettled([
       investmentService.createInvestment({
         invoiceId: invoice.id,
@@ -190,7 +204,7 @@ describe("Concurrent investment: total committed amount must not exceed invoice 
 
   it("allows both concurrent investments through when their combined total exactly equals remaining capacity", async () => {
     // Two concurrent requests for 250 each against an empty 500-capacity invoice
-    // sum to exactly 500 — neither individually exceeds capacity at submit time,
+    // sum to exactly 500 â€” neither individually exceeds capacity at submit time,
     // and since they're serialized, the second sees the first's 250 already
     // committed and still fits in the remaining 250. Total must land exactly at
     // capacity, both must succeed, and the invoice must transition to FUNDED.
@@ -265,7 +279,7 @@ describe("Concurrent investment: total committed amount must not exceed invoice 
     });
 
     // Total committed never exceeds the invoice's face value, and exactly two
-    // investment rows exist — the rejected request left no partial record.
+    // investment rows exist â€” the rejected request left no partial record.
     expect(investments.size).toBe(2);
     const totalCommitted = [...investments.values()].reduce(
       (sum, inv) => sum.plus(new Decimal(inv.investmentAmount)),
