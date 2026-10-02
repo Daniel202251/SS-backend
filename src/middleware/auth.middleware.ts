@@ -17,6 +17,9 @@ import {
 interface AuthTokenPayload {
   sub: string;
   stellarAddress: string;
+  wallet?: string;
+  role?: UserType;
+  userType?: UserType;
   userId?: string;
 }
 
@@ -35,7 +38,7 @@ export const MAX_BEARER_TOKEN_LENGTH = 4_096;
 export const DEFAULT_AUTH_LOOKUP_TIMEOUT_MS = 5_000;
 
 /** Tokens are signed by AuthService with the default HMAC algorithm. */
-const ALLOWED_JWT_ALGORITHMS: jwt.Algorithm[] = ["HS256"];
+const ALLOWED_JWT_ALGORITHMS: jwt.Algorithm[] = ["HS256", "RS256", "ES256"];
 
 const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/;
 
@@ -85,18 +88,21 @@ export function extractBearerToken(header: unknown): BearerTokenResult {
   return { ok: true, token };
 }
 
-function missingOrMalformedTokenError(result: Extract<BearerTokenResult, { ok: false }>) {
+function missingOrMalformedTokenError(
+  result: Extract<BearerTokenResult, { ok: false }>,
+  appLogger?: AppLogger
+) {
   if (result.reason === "missing_token") {
     return new HttpError(
       401,
       "Authorization token is required.",
-      buildAuthFailureDetails(undefined, "missing_token")
+      buildAuthFailureDetails(undefined, "missing_token", appLogger)
     );
   }
   return new HttpError(
     401,
     "Invalid or expired token.",
-    buildAuthFailureDetails(result.token, result.reason)
+    buildAuthFailureDetails(result.token, result.reason, appLogger)
   );
 }
 
@@ -134,10 +140,15 @@ export function createAuthMiddleware(
     const startedAt = Date.now();
 
     try {
-      req.user = await withTimeout(
+      const user = await withTimeout(
         Promise.resolve().then(() => authService.getCurrentUser(token)),
         timeoutMs
       );
+      if (user.isSuspended) {
+        next(new AppError(403, "This account has been suspended.", "ACCOUNT_SUSPENDED"));
+        return;
+      }
+      req.user = user;
       next();
     } catch (error) {
       if (error instanceof HttpError || error instanceof AppError) {
@@ -164,26 +175,36 @@ export function createAuthMiddleware(
         return;
       }
 
-      if (!(error instanceof jwt.JsonWebTokenError)) {
-        logger.warn("Unexpected error during authentication; rejecting token", {
-          method: req.method,
-          path: req.path,
-          error: error instanceof Error ? error.message : String(error),
-        });
+      if (error instanceof jwt.JsonWebTokenError) {
+        next(
+          new HttpError(
+            401,
+            "Invalid or expired token.",
+            buildAuthFailureDetails(token, classifyJwtError(error))
+          )
+        );
+        return;
       }
 
-      next(
-        new HttpError(
-          401,
-          "Invalid or expired token.",
-          buildAuthFailureDetails(token, classifyJwtError(error))
-        )
-      );
+      logger.error('Failed to process', { error });
+      next(new AppError(500, 'Processing failed', 'AUTH_PROCESSING_FAILED'));
     }
   };
 }
 
-export function authenticateJWT(req: Request, _res: Response, next: NextFunction): void {
+async function processEfficiently(token: string, secret: string): Promise<jwt.JwtPayload> {
+  return new Promise((resolve, reject) => {
+    jwt.verify(token, secret, { algorithms: ALLOWED_JWT_ALGORITHMS }, (error, payload) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(payload as jwt.JwtPayload);
+      }
+    });
+  });
+}
+
+export async function authenticateJWT(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const extracted = extractBearerToken(req.headers.authorization);
   if (!extracted.ok) {
     next(missingOrMalformedTokenError(extracted));
@@ -217,17 +238,23 @@ export function authenticateJWT(req: Request, _res: Response, next: NextFunction
     return;
   }
 
-  let payload: string | jwt.JwtPayload;
+  let payload: jwt.JwtPayload;
   try {
-    payload = jwt.verify(token, secret, { algorithms: ALLOWED_JWT_ALGORITHMS });
+    payload = await processEfficiently(token, secret);
   } catch (error) {
-    next(
-      new HttpError(
-        401,
-        "Invalid or expired token.",
-        buildAuthFailureDetails(token, classifyJwtError(error))
-      )
-    );
+    if (error instanceof jwt.JsonWebTokenError) {
+      next(
+        new HttpError(
+          401,
+          "Invalid or expired token.",
+          buildAuthFailureDetails(token, classifyJwtError(error))
+        )
+      );
+      return;
+    }
+
+    globalLogger.error('Failed to process', { error });
+    next(new AppError(500, 'Processing failed', 'AUTH_PROCESSING_FAILED'));
     return;
   }
 
@@ -240,14 +267,14 @@ export function authenticateJWT(req: Request, _res: Response, next: NextFunction
     return;
   }
 
-  const { userId, stellarAddress } = claims as Partial<AuthTokenPayload>;
+  const { userId, stellarAddress, wallet, userType, role } = claims as Partial<AuthTokenPayload>;
 
   (req as AuthenticatedRequest).user = {
     id: nonEmptyString(userId) ?? subject,
     // Tokens are issued with the wallet address as subject.
-    stellarAddress: nonEmptyString(stellarAddress) ?? subject,
+    stellarAddress: nonEmptyString(wallet) ?? nonEmptyString(stellarAddress) ?? subject,
     email: null,
-    userType: null as unknown as UserType,
+    userType: userType || role || (null as unknown as UserType),
     kycStatus: null as unknown as KYCStatus,
     isKycVerified: false,
     createdAt: new Date(),
@@ -255,6 +282,22 @@ export function authenticateJWT(req: Request, _res: Response, next: NextFunction
   };
 
   next();
+}
+
+export function requireRole(allowedRoles: UserType[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user) {
+      return next(new HttpError(401, "Authentication required"));
+    }
+
+    const role = authReq.user.userType;
+    if (!role || (!allowedRoles.includes(role) && role !== UserType.BOTH)) {
+      return next(new HttpError(403, "Access forbidden for this user role"));
+    }
+
+    next();
+  };
 }
 
 export function requireKYC(skipVerification = false) {
@@ -290,4 +333,62 @@ export function checkKycVerified(req: Request, _res: Response, next: NextFunctio
     return;
   }
   next();
+}
+
+export function requireSeller() {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user) {
+      next(new HttpError(401, "Authentication required."));
+      return;
+    }
+
+    if (
+      authReq.user.userType !== UserType.SELLER &&
+      authReq.user.userType !== UserType.BOTH
+    ) {
+      next(new HttpError(403, "Seller access required."));
+      return;
+    }
+
+    next();
+  };
+}
+
+export function requireAdmin(adminWallets: string[]) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const user = (req as AuthenticatedRequest).user;
+    if (!user) {
+      next(new HttpError(401, "Authentication required"));
+      return;
+    }
+
+    if (!adminWallets.includes(user.stellarAddress)) {
+      next(new AppError(403, "Admin privileges required", "ADMIN_REQUIRED"));
+      return;
+    }
+
+    next();
+  };
+}
+
+/** Requires an authenticated investor (or BOTH) account. */
+export function requireInvestor() {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const authReq = req as AuthenticatedRequest;
+    if (!authReq.user) {
+      next(new HttpError(401, "Authentication required."));
+      return;
+    }
+
+    if (
+      authReq.user.userType !== UserType.INVESTOR &&
+      authReq.user.userType !== UserType.BOTH
+    ) {
+      next(new HttpError(403, "Investor access required."));
+      return;
+    }
+
+    next();
+  };
 }

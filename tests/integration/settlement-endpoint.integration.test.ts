@@ -18,6 +18,12 @@ import { AuthChallenge } from "../../src/models/AuthChallenge.model";
 import { Transaction } from "../../src/models/Transaction.model";
 import { KYCVerification } from "../../src/models/KYCVerification.model";
 import { Notification } from "../../src/models/Notification.model";
+import { KycHistory } from "../../src/models/KycHistory.model";
+import { SecondaryListing } from "../../src/models/SecondaryListing.model";
+import { Watchlist } from "../../src/models/Watchlist.model";
+import { InvestorReturn } from "../../src/models/InvestorReturn.model";
+import { SettlementRemainder } from "../../src/models/SettlementRemainder.model";
+import { InvoiceStatusHistory } from "../../src/models/InvoiceStatusHistory.model";
 import { InvoiceStatus, InvestmentStatus, KYCStatus, UserType } from "../../src/types/enums";
 import type { AppConfig } from "../../src/config/env";
 import { logger } from "../../src/observability/logger";
@@ -74,7 +80,21 @@ describe("Settlement Endpoint Integration", () => {
       stellar: { network: "testnet", networkPassphrase: "Test SDF Network ; September 2015" },
       sorobanEscrow: { enabled: false, contractId: null, fundingMode: "wallet_xdr", settlementMode: "wallet_xdr" },
       admin: { apiKey: "test-admin-key" },
-    } as AppConfig;
+      ipfs: {
+        pinataJwt: "test",
+        pinataGateway: "test",
+        timeoutMs: 5000,
+        maxRetries: 3,
+        baseRetryDelayMs: 100,
+        maxFileSizeMB: 10,
+        allowedMimeTypes: ["application/pdf", "image/png", "image/jpeg"],
+        uploadRateLimit: { windowMs: 15 * 60 * 1000, maxUploads: 10 },
+      },
+      kyc: {
+        skipVerification: true,
+        webhookSecret: "",
+      },
+    } as unknown as AppConfig;
 
     patchEntityMetadataForSQLite();
 
@@ -82,7 +102,21 @@ describe("Settlement Endpoint Integration", () => {
       type: "sqlite",
       database: ":memory:",
       dropSchema: true,
-      entities: [User, Investment, Invoice, AuthChallenge, Transaction, KYCVerification, Notification],
+      entities: [
+        User,
+        Investment,
+        Invoice,
+        AuthChallenge,
+        Transaction,
+        KYCVerification,
+        Notification,
+        KycHistory,
+        SecondaryListing,
+        Watchlist,
+        InvestorReturn,
+        SettlementRemainder,
+        InvoiceStatusHistory,
+      ],
       synchronize: true,
       logging: false,
     });
@@ -94,9 +128,9 @@ describe("Settlement Endpoint Integration", () => {
       async uploadFile() { return { hash: "QmMockHash", size: 1024, timestamp: new Date().toISOString() }; }
     } as unknown as IPFSService;
 
-    const invoiceService = createInvoiceService(dataSource, mockIPFSService, config);
-    const investmentService = createInvestmentService(dataSource, config);
-    const settlementService = createSettlementService(dataSource, config);
+    const invoiceService = createInvoiceService(dataSource, mockIPFSService);
+    const investmentService = createInvestmentService(dataSource);
+    const settlementService = createSettlementService(dataSource);
     const marketplaceService = createMarketplaceService(dataSource);
     const notificationService = createNotificationService(dataSource);
 

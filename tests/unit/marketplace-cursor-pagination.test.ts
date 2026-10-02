@@ -76,12 +76,23 @@ describe("MarketplaceService.getPublishedInvoicesByCursor", () => {
     expect(result.data).toEqual([
       {
         id: invoice.id,
+        invoiceId: invoice.id,
         invoiceNumber: invoice.invoiceNumber,
         customerName: invoice.customerName,
+        sellerName: invoice.customerName,
         amount: invoice.amount,
+        faceValue: invoice.amount,
+        fundingTarget: invoice.netAmount || invoice.amount,
+        amountRaised: invoice.fundedAmount || "0",
+        fundedAmount: invoice.fundedAmount || "0",
         discountRate: invoice.discountRate,
+        yieldBps: Math.round(parseFloat(invoice.discountRate || "0") * 100),
+        fundingPercentage: parseFloat(invoice.netAmount || invoice.amount || "0") > 0
+          ? Math.min(100, Math.round((parseFloat(invoice.fundedAmount || "0") / parseFloat(invoice.netAmount || invoice.amount || "0")) * 10000) / 100)
+          : 0,
         netAmount: invoice.netAmount,
         dueDate: invoice.dueDate,
+        fundingDeadline: invoice.dueDate,
         status: invoice.status,
         createdAt: invoice.createdAt,
       },

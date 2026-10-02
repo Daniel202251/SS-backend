@@ -21,7 +21,7 @@ function createInvestment(overrides: Partial<Investment> = {}): Investment {
     invoice: overrides.invoice as Investment["invoice"],
     investor: overrides.investor as Investment["investor"],
     transactions: overrides.transactions ?? [],
-  };
+  } as unknown as Investment;
 }
 
 function createTransaction(overrides: Partial<Transaction> = {}): Transaction {
@@ -39,7 +39,7 @@ function createTransaction(overrides: Partial<Transaction> = {}): Transaction {
     user: overrides.user as Transaction["user"],
     invoice: overrides.invoice as Transaction["invoice"],
     investment: overrides.investment as Transaction["investment"],
-  };
+  } as unknown as Transaction;
 }
 
 describe("OrchestrateInvestmentFundingService integration", () => {

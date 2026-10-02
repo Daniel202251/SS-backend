@@ -1,3 +1,4 @@
+import { IsNull } from "typeorm";
 import { InvoiceService } from "../src/services/invoice.service";
 import { ServiceError } from "../src/utils/service-error";
 import { Invoice } from "../src/models/Invoice.model";
@@ -391,13 +392,13 @@ describe("InvoiceService", () => {
       await invoiceService.getInvoicesBySellerId({ sellerId: "  seller-456  " });
 
       expect(mockInvoiceRepository.find).toHaveBeenCalledWith({
-        where: { sellerId: "seller-456", deletedAt: null },
+        where: { sellerId: "seller-456", deletedAt: IsNull() },
         skip: 0,
         take: 20,
         order: { createdAt: "DESC" },
       });
       expect(mockInvoiceRepository.count).toHaveBeenCalledWith({
-        where: { sellerId: "seller-456", deletedAt: null },
+        where: { sellerId: "seller-456", deletedAt: IsNull() },
       });
     });
 
@@ -1576,7 +1577,7 @@ describe("InvoiceService", () => {
 
       await expect(
         invoiceService.getInvoiceTokenHolders("invoice-123", "intruder")
-      ).rejects.toMatchObject({ code: "unauthorized_invoice_access", statusCode: 403 });
+      ).rejects.toMatchObject({ code: "forbidden", statusCode: 403 });
     });
 
     it("should refuse to list holders of a draft", async () => {
@@ -1653,7 +1654,7 @@ describe("InvoiceService", () => {
 
       const holders = await service.getInvoiceTokenHolders("invoice-123", "seller-456");
 
-      expect(holders.map((holder) => holder.share_percent)).toEqual(["0", "0"]);
+      expect(holders.map((holder) => holder.share_percent)).toEqual(["0.00", "0.00"]);
     });
 
     it("should tolerate an investor without a stored address", async () => {
@@ -1663,7 +1664,7 @@ describe("InvoiceService", () => {
       const [holder] = await service.getInvoiceTokenHolders("invoice-123", "seller-456");
 
       expect(holder.wallet).toBe("");
-      expect(holder.share_percent).toBe("100");
+      expect(holder.share_percent).toBe("100.00");
     });
   });
 

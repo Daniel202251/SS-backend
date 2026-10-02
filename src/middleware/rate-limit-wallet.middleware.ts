@@ -82,4 +82,14 @@ export function createWalletRateLimiter(config: WalletRateLimitConfig, name: str
 // For testing: allow resetting stores
 export function resetRateLimitStores(): void {
   stores.clear();
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { getRedisClient } = require("../config/redis");
+    const client = getRedisClient();
+    if (client && typeof client.flushall === "function") {
+      client.flushall();
+    }
+  } catch {
+    // Ignore
+  }
 }

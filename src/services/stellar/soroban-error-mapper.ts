@@ -88,8 +88,9 @@ export function mapSorobanError(
   }
 
   // Transaction-level rejection reported by sendTransaction result
-  if (typeof input === "object" && input !== null && "status" in (input as any)) {
-    const st = String((input as any).status).toUpperCase();
+  if (typeof input === "object" && input !== null && "status" in input) {
+    const statusVal = (input as Record<string, unknown>).status;
+    const st = String(statusVal).toUpperCase();
     if (st === "ERROR" || st === "FAILED") {
       return {
         error: new ServiceError("soroban_tx_rejected", "Soroban transaction was rejected.", 422, {

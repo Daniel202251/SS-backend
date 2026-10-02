@@ -4,39 +4,38 @@ import {
   type Request,
   type RequestHandler,
   type Response,
-  type ErrorRequestHandler,
 } from "express";
 import Joi from "joi";
 import { createAuthController } from "../controllers/auth.controller";
 import { createAuthMiddleware } from "../middleware/auth.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import {
-  createChallengeRateLimitMiddleware,
-  createVerifyRateLimitMiddleware,
-} from "../middleware/rate-limit.middleware";
+import { createAuthRateLimiter } from "../middleware/redis-rate-limit.middleware";
 import { createCircuitBreaker } from "../lib/circuit-breaker";
 import type { AuthService } from "../services/auth.service";
 import type { AppLogger } from "../observability/logger";
 import { HttpError } from "../utils/http-error";
 
 // Strict schemas: enforce Stellar G... format hint, length bounds, and sanitized inputs.
-const STELLAR_PUBLIC_KEY_PATTERN = /^G[A-Z2-7]{55}$/;
-const NONCE_PATTERN = /^[A-Za-z0-9:_-]+$/;
-const SIGNATURE_PATTERN = /^[A-Za-z0-9+/=:_\-.]+$/;
+const _STELLAR_PUBLIC_KEY_PATTERN = /^G[A-Z2-7]{55}$/;
+const _NONCE_PATTERN = /^[A-Za-z0-9:_-]+$/;
+const _SIGNATURE_PATTERN = /^[A-Za-z0-9+/=:_\-.]+$/;
 
 type AsyncRouteHandler = (req: Request, res: Response, next: NextFunction) => Promise<void> | void;
 
-const publicKeySchema = Joi.string().trim().required();
+const publicKeySchema = Joi.string().trim();
 
 const challengeSchema = Joi.object({
   publicKey: publicKeySchema,
-}).unknown(true);
+  wallet: publicKeySchema,
+}).or("publicKey", "wallet").unknown(true);
 
 const verifySchema = Joi.object({
   publicKey: publicKeySchema,
-  nonce: Joi.string().trim().required(),
+  wallet: publicKeySchema,
+  nonce: Joi.string().trim(),
+  challenge: Joi.string().trim(),
   signature: Joi.string().trim().required(),
-}).unknown(true);
+}).or("publicKey", "wallet").or("nonce", "challenge").unknown(true);
 
 function wrapAuthHandler(
   routeName: string,
@@ -87,7 +86,7 @@ function createIdempotencyMiddleware() {
   >();
   const TTL_MS = 60 * 60 * 1000;
 
-  setInterval(
+  const cleanupInterval = setInterval(
     () => {
       const now = Date.now();
       for (const [key, value] of cache.entries()) {
@@ -98,6 +97,9 @@ function createIdempotencyMiddleware() {
     },
     5 * 60 * 1000
   );
+  if (cleanupInterval.unref) {
+    cleanupInterval.unref();
+  }
 
   return (req: Request, res: Response, next: NextFunction) => {
     const key = extractIdempotencyKey(req);
@@ -123,29 +125,24 @@ function createIdempotencyMiddleware() {
   };
 }
 
-function normalizeErrorResponse(): ErrorRequestHandler {
-  return (err: Error, req: Request, res: Response, _next: NextFunction): void => {
-    if (err instanceof HttpError) {
-      res.status(err.statusCode).json({
-        success: false,
-        error: {
-          code: err.code ?? "INTERNAL_ERROR",
-          message: err.message,
-          details: err.details,
-        },
-        requestId: req.headers["x-request-id"],
-      });
-      return;
+function validateQuery(schema: Joi.Schema): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const { error, value } = schema.validate(req.query, {
+      stripUnknown: true,
+      convert: true,
+    });
+
+    if (error) {
+      return next(new HttpError(400, `Invalid query parameters: ${error.message}`));
     }
 
-    res.status(500).json({
-      success: false,
-      error: {
-        code: "INTERNAL_ERROR",
-        message: "An unexpected error occurred",
-      },
-      requestId: req.headers["x-request-id"],
+    Object.defineProperty(req, "query", {
+      value,
+      writable: true,
+      configurable: true,
+      enumerable: true,
     });
+    next();
   };
 }
 
@@ -154,8 +151,8 @@ export function createAuthRouter(authService: AuthService, logger: AppLogger): R
   const controller = createAuthController(authService);
   const authMiddleware = createAuthMiddleware(authService);
 
-  const challengeRateLimiter = createChallengeRateLimitMiddleware(logger);
-  const verifyRateLimiter = createVerifyRateLimitMiddleware(logger);
+  const challengeRateLimiter = createAuthRateLimiter("challenge", { logger });
+  const verifyRateLimiter = createAuthRateLimiter("verify", { logger });
   const idempotencyMiddleware = createIdempotencyMiddleware();
   const circuitBreaker = createCircuitBreaker({ failureThreshold: 5, timeout: 30000 });
 
@@ -190,6 +187,13 @@ export function createAuthRouter(authService: AuthService, logger: AppLogger): R
   router.use(noStoreAuthResponse());
   router.use(idempotencyMiddleware);
 
+  router.get(
+    "/challenge",
+    challengeRateLimiter,
+    validateQuery(challengeSchema),
+    withCircuitBreakerAndWrap("auth.challenge", controller.challenge as AsyncRouteHandler)
+  );
+
   router.post(
     "/challenge",
     challengeRateLimiter,
@@ -209,8 +213,6 @@ export function createAuthRouter(authService: AuthService, logger: AppLogger): R
     authMiddleware,
     wrapAuthHandler("auth.me", controller.me as AsyncRouteHandler, logger)
   );
-
-  router.use(normalizeErrorResponse());
 
   return router;
 }
