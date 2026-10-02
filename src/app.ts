@@ -68,6 +68,49 @@ import type { WatchlistService } from "./services/watchlist.service";
 import type { SettlementWorker } from "./workers/settlement.worker";
 
 import dataSource from "./config/database";
+import { getRedisClient } from "./config/redis";
+import packageInfo from "../package.json";
+
+const READINESS_CHECK_TIMEOUT_MS = 80;
+
+export interface ReadinessChecks {
+  database: () => Promise<unknown>;
+  redis: () => Promise<unknown>;
+}
+
+interface DependencyHealth {
+  status: "ok" | "unhealthy";
+  error?: string;
+}
+
+async function checkDependency(
+  name: "database" | "redis",
+  check: () => Promise<unknown>,
+  appLogger: AppLogger
+): Promise<DependencyHealth> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      Promise.resolve().then(check),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Health check timed out")), READINESS_CHECK_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+    return { status: "ok" };
+  } catch (error) {
+    appLogger.warn("Readiness dependency check failed.", {
+      dependency: name,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    return {
+      status: "unhealthy",
+      error: `${name} connectivity check failed`,
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 //  REQUIRED
 export function createRequestLifecycleTracker() {
@@ -162,6 +205,7 @@ export interface AppDependencies {
   logger?: AppLogger;
   metricsEnabled?: boolean;
   metricsRegistry?: MetricsRegistry;
+  readinessChecks?: ReadinessChecks;
   config?: import("./config/env").AppConfig;
 
   http?: {
@@ -211,6 +255,7 @@ export function createApp({
   logger: appLogger = logger,
   metricsEnabled = true,
   metricsRegistry = new MetricsRegistry(),
+  readinessChecks,
   config,
   http,
 }: AppDependencies) {
@@ -280,10 +325,38 @@ export function createApp({
         status: healthy ? "ok" : "degraded",
         timestamp: new Date().toISOString(),
         uptimeSeconds: Number(process.uptime().toFixed(3)),
+        version: packageInfo.version,
         requestId,
         traceId: requestId,
         database,
         horizon,
+      },
+    });
+  });
+
+  app.get("/ready", async (_req, res) => {
+    const checks: ReadinessChecks = readinessChecks ?? {
+      database: async () => {
+        if (!dataSource.isInitialized) {
+          throw new Error("Database connection is not initialized");
+        }
+        await dataSource.query("SELECT 1");
+      },
+      redis: async () => {
+        await getRedisClient().ping();
+      },
+    };
+    const [database, redis] = await Promise.all([
+      checkDependency("database", checks.database, appLogger),
+      checkDependency("redis", checks.redis, appLogger),
+    ]);
+    const ready = database.status === "ok" && redis.status === "ok";
+
+    res.status(ready ? 200 : 503).json({
+      success: ready,
+      data: {
+        status: ready ? "ready" : "not_ready",
+        dependencies: { database, redis },
       },
     });
   });
