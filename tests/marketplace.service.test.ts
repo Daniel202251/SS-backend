@@ -66,23 +66,41 @@ describe("MarketplaceService", () => {
         data: [
           {
             id: "invoice-1",
+            invoiceId: "invoice-1",
             invoiceNumber: "INV-001",
             customerName: "Customer A",
+            sellerName: "Customer A",
             amount: "1000.00",
+            faceValue: "1000.00",
+            fundingTarget: "950.00",
+            amountRaised: "0",
+            fundedAmount: "0",
             discountRate: "5.00",
+            yieldBps: 500,
+            fundingPercentage: 0,
             netAmount: "950.00",
             dueDate: new Date("2024-12-31"),
+            fundingDeadline: new Date("2024-12-31"),
             status: InvoiceStatus.PUBLISHED,
             createdAt: new Date("2024-01-01"),
           },
           {
             id: "invoice-2",
+            invoiceId: "invoice-2",
             invoiceNumber: "INV-002",
             customerName: "Customer B",
+            sellerName: "Customer B",
             amount: "2000.00",
+            faceValue: "2000.00",
+            fundingTarget: "1940.00",
+            amountRaised: "0",
+            fundedAmount: "0",
             discountRate: "3.00",
+            yieldBps: 300,
+            fundingPercentage: 0,
             netAmount: "1940.00",
             dueDate: new Date("2024-11-30"),
+            fundingDeadline: new Date("2024-11-30"),
             status: InvoiceStatus.PUBLISHED,
             createdAt: new Date("2024-01-02"),
           },
@@ -101,7 +119,7 @@ describe("MarketplaceService", () => {
           sort: "amount",
           sortOrder: "DESC",
         },
-        { page: 1, limit: 20 },
+        { page: 1, limit: 20 }
       );
     });
 
@@ -133,7 +151,7 @@ describe("MarketplaceService", () => {
 
       expect(mockMarketplaceRepository.findPublishedInvoices).toHaveBeenCalledWith(
         filters,
-        pagination,
+        pagination
       );
     });
 
@@ -148,7 +166,7 @@ describe("MarketplaceService", () => {
 
       expect(mockMarketplaceRepository.findPublishedInvoices).toHaveBeenCalledWith(
         expect.any(Object),
-        { page: 1, limit: 100 }, // Normalized values
+        { page: 1, limit: 100 } // Normalized values
       );
     });
 

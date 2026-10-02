@@ -1,9 +1,7 @@
 import crypto from "crypto";
 import { Investment } from "../src/models/Investment.model";
 import { Transaction } from "../src/models/Transaction.model";
-import {
-  OrchestrateInvestmentFundingService,
-} from "../src/services/stellar/orchestrate-investment-funding.service";
+import { OrchestrateInvestmentFundingService } from "../src/services/stellar/orchestrate-investment-funding.service";
 import { InvestmentStatus, TransactionStatus, TransactionType } from "../src/types/enums";
 import { ServiceError } from "../src/utils/service-error";
 
@@ -24,7 +22,7 @@ function createInvestment(overrides: Partial<Investment> = {}): Investment {
     invoice: overrides.invoice as Investment["invoice"],
     investor: overrides.investor as Investment["investor"],
     transactions: overrides.transactions ?? [],
-  };
+  } as unknown as Investment;
 }
 
 function createTransaction(overrides: Partial<Transaction> = {}): Transaction {
@@ -42,7 +40,7 @@ function createTransaction(overrides: Partial<Transaction> = {}): Transaction {
     user: overrides.user as Transaction["user"],
     invoice: overrides.invoice as Transaction["invoice"],
     investment: overrides.investment as Transaction["investment"],
-  };
+  } as unknown as Transaction;
 }
 
 describe("OrchestrateInvestmentFundingService", () => {
@@ -147,13 +145,13 @@ describe("OrchestrateInvestmentFundingService", () => {
             findTransactionByInvestmentIdForUpdate: async () => null,
             saveTransaction,
             createTransaction: (input) => createTransaction(input),
-          }),
+          })
         ),
       },
       sorobanEscrowClient: {
-        prepareInvestmentFunding: jest.fn().mockRejectedValue(
-          new ServiceError("soroban_unavailable", "RPC unavailable", 503),
-        ),
+        prepareInvestmentFunding: jest
+          .fn()
+          .mockRejectedValue(new ServiceError("soroban_unavailable", "RPC unavailable", 503)),
       },
       config: {
         enabled: true,

@@ -17,9 +17,7 @@ function createFakeInvoiceService() {
     findOne: async ({ where: { id }, relations }) => {
       const invoice = invoices.get(id) ?? null;
       if (invoice && relations?.includes("investments")) {
-        const relatedInvestments = [...investments.values()].filter(
-          (inv) => inv.invoiceId === id,
-        );
+        const relatedInvestments = [...investments.values()].filter((inv) => inv.invoiceId === id);
         invoice.investments = relatedInvestments;
       }
       return invoice;
@@ -67,14 +65,10 @@ function createInvoice(overrides: Partial<Invoice> = {}): Invoice {
     investments: [],
     transactions: [],
     ...overrides,
-  } as Invoice;
+  } as unknown as Invoice;
 }
 
-function createInvestment(
-  invoiceId: string,
-  investorWallet: string,
-  amount: string,
-): Investment {
+function createInvestment(invoiceId: string, investorWallet: string, amount: string): Investment {
   return {
     id: crypto.randomUUID(),
     invoiceId,
@@ -91,7 +85,7 @@ function createInvestment(
     invoice: undefined as unknown as Investment["invoice"],
     investor: undefined as unknown as Investment["investor"],
     transactions: [],
-  } as Investment;
+  } as unknown as Investment;
 }
 
 describe("Invoice detail endpoint: investor commitments with share percentages", () => {
@@ -146,7 +140,7 @@ describe("Invoice detail endpoint: investor commitments with share percentages",
     // Assert sum of all share percentages is exactly 100%
     const sumPercent = commitmentEntries.reduce(
       (sum, entry) => sum + parseFloat(entry.share_percent),
-      0,
+      0
     );
     expect(sumPercent).toBe(100);
 
@@ -175,8 +169,7 @@ describe("Invoice detail endpoint: investor commitments with share percentages",
     investments.set(inv.id, inv);
 
     // Compute truncated wallet as the endpoint would
-    const truncated =
-      wallet.length >= 8 ? `${wallet.slice(0, 4)}…${wallet.slice(-4)}` : wallet;
+    const truncated = wallet.length >= 8 ? `${wallet.slice(0, 4)}…${wallet.slice(-4)}` : wallet;
     expect(truncated).toBe("GA5X…Z7W7");
   });
 });

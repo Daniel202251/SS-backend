@@ -53,7 +53,9 @@ describe("extractWalletFromToken", () => {
   });
 
   it("returns the address for a valid Stellar address string sub", () => {
-    const token = jwt.sign({ sub: "GA5XZ7W7Z7W7Z7W7Z7W7Z7W7Z7W7Z7W7Z7W7Z7W7" }, SECRET, { expiresIn: "1h" });
+    const token = jwt.sign({ sub: "GA5XZ7W7Z7W7Z7W7Z7W7Z7W7Z7W7Z7W7Z7W7Z7W7" }, SECRET, {
+      expiresIn: "1h",
+    });
     expect(extractWalletFromToken(token, SECRET)).toBe("GA5XZ7W7Z7W7Z7W7Z7W7Z7W7Z7W7Z7W7Z7W7Z7W7");
   });
 

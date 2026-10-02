@@ -1,6 +1,7 @@
 import type { AppConfig } from "../config/env";
 import { ServiceError } from "../utils/service-error";
 import type { AppLogger } from "../observability/logger";
+import { withCorrelationHeaders } from "../observability/request-context";
 
 export interface IPFSUploadResult {
   hash: string;
@@ -70,16 +71,16 @@ export class IPFSService {
 
     try {
       const formData = new FormData();
-      const blob = new Blob([fileBuffer], { type: mimeType });
+      const blob = new Blob([new Uint8Array(fileBuffer)], { type: mimeType });
       formData.append("file", blob, filename);
 
       const response = await this.fetchImplementation(
         `${this.config.apiUrl}/pinning/pinFileToIPFS`,
         {
           method: "POST",
-          headers: {
+          headers: withCorrelationHeaders({
             Authorization: `Bearer ${this.config.jwt}`,
-          },
+          }),
           body: formData,
         }
       );

@@ -23,12 +23,20 @@ function createHarness() {
     findOne: jest.fn().mockResolvedValue(verification),
   };
   const manager = {
-    getRepository: jest.fn((entity) => entity.name === "User" ? userRepository : verificationRepository),
+    getRepository: jest.fn((entity) =>
+      entity.name === "User" ? userRepository : verificationRepository
+    ),
   };
   const dataSource = {
     transaction: jest.fn(async (callback) => callback(manager)),
   };
-  const appLogger = { info: jest.fn(), debug: jest.fn(), warn: jest.fn(), error: jest.fn(), child: jest.fn() };
+  const appLogger = {
+    info: jest.fn(),
+    debug: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  };
   const service = new KycService(dataSource as any, "webhook-secret", appLogger as any);
   return { service, userRepository, verificationRepository, appLogger };
 }
@@ -40,10 +48,12 @@ describe("KycService", () => {
       providerReference: "provider-123",
     });
     expect(result.status).toBe(KYCStatus.PENDING);
-    expect(verificationRepository.create).toHaveBeenCalledWith(expect.objectContaining({
-      verificationType: KYCVerificationType.IDENTITY,
-      documents: { providerReference: "provider-123" },
-    }));
+    expect(verificationRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        verificationType: KYCVerificationType.IDENTITY,
+        documents: { providerReference: "provider-123" },
+      })
+    );
     expect(userRepository.update).toHaveBeenCalledWith("user-1", {
       kycStatus: KYCStatus.PENDING,
       isKycVerified: false,
@@ -65,12 +75,20 @@ describe("KycService", () => {
     const { service, userRepository, verificationRepository, appLogger } = createHarness();
     await service.processWebhook({ userId: "user-1", status });
     expect(verificationRepository.save).toHaveBeenCalledWith(expect.objectContaining({ status }));
-    expect(userRepository.update).toHaveBeenCalledWith("user-1", { kycStatus: status, isKycVerified });
-    expect(appLogger.info).toHaveBeenCalledWith("kyc.webhook.processed", expect.objectContaining({ status }));
+    expect(userRepository.update).toHaveBeenCalledWith("user-1", {
+      kycStatus: status,
+      isKycVerified,
+    });
+    expect(appLogger.info).toHaveBeenCalledWith(
+      "kyc.webhook.processed",
+      expect.objectContaining({ status })
+    );
   });
 
   it("rejects unsupported webhook transitions", async () => {
     const { service } = createHarness();
-    await expect(service.processWebhook({ userId: "user-1", status: KYCStatus.PENDING })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(
+      service.processWebhook({ userId: "user-1", status: KYCStatus.PENDING })
+    ).rejects.toMatchObject({ statusCode: 400 });
   });
 });

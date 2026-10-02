@@ -1,6 +1,17 @@
-import { Contract, Address, nativeToScVal, xdr, SorobanRpc, Keypair, TransactionBuilder, BASE_FEE } from "stellar-sdk";
+import {
+  Contract,
+  Address,
+  nativeToScVal,
+  xdr,
+  SorobanRpc,
+  Keypair,
+  TransactionBuilder,
+  BASE_FEE,
+} from "stellar-sdk";
 import type { AppLogger } from "../../observability/logger";
 import { logger as globalLogger } from "../../observability/logger";
+import { ServiceError } from "../../utils/service-error";
+import { mapSorobanError } from "./soroban-error-mapper";
 
 /**
  * A single payout leg: an on-chain destination and the amount (in stroops)
@@ -31,7 +42,10 @@ export interface DistributePayoutsInput {
   feeBps: number;
 }
 
-export interface DistributePayoutsResult { transactionHash: string; ledger: number | null; }
+export interface DistributePayoutsResult {
+  transactionHash: string;
+  ledger: number | null;
+}
 
 const MAX_FEE_BPS = 10_000;
 
@@ -59,7 +73,7 @@ export class PaymentDistributorContractService {
 
   constructor(
     dependenciesOrContractId: string | PaymentDistributorContractServiceDependencies,
-    logger?: AppLogger,
+    logger?: AppLogger
   ) {
     if (typeof dependenciesOrContractId === "string") {
       if (!dependenciesOrContractId) {
@@ -108,7 +122,7 @@ export class PaymentDistributorContractService {
     invoiceId: string,
     recipients: PayoutRecipient[],
     platformFeeAccount: string,
-    feeBps: number,
+    feeBps: number
   ): xdr.Operation {
     if (recipients.length === 0) {
       throw new Error("At least one payout recipient is required.");
@@ -118,7 +132,7 @@ export class PaymentDistributorContractService {
     }
 
     const recipientAddressesScVal = xdr.ScVal.scvVec(
-      recipients.map((recipient) => new Address(recipient.address).toScVal()),
+      recipients.map((recipient) => new Address(recipient.address).toScVal())
     );
 
     const recipientAmountsScVal = xdr.ScVal.scvVec(
@@ -128,7 +142,7 @@ export class PaymentDistributorContractService {
             ? recipient.amountStroops
             : BigInt(recipient.amountStroops);
         return nativeToScVal(amountBigInt, { type: "i128" });
-      }),
+      })
     );
 
     return this.contract.call(
@@ -137,7 +151,7 @@ export class PaymentDistributorContractService {
       recipientAddressesScVal,
       recipientAmountsScVal,
       new Address(platformFeeAccount).toScVal(),
-      nativeToScVal(feeBps, { type: "u32" }),
+      nativeToScVal(feeBps, { type: "u32" })
     );
   }
 
@@ -148,7 +162,10 @@ export class PaymentDistributorContractService {
     if (this.verifyDistributorWiring && !(await this.verifyDistributorWiring())) {
       throw new Error("Payment distributor is not initialized on the invoice escrow contract.");
     }
-    const recipientTotal = input.recipients.reduce((sum, recipient) => sum + BigInt(recipient.amountStroops), 0n);
+    const recipientTotal = input.recipients.reduce(
+      (sum, recipient) => sum + BigInt(recipient.amountStroops),
+      0n
+    );
     const fee = (input.totalAmountStroops * BigInt(input.feeBps)) / 10_000n;
     if (recipientTotal + fee > input.totalAmountStroops) {
       throw new Error("Payout recipients and protocol fee exceed the settlement total.");
@@ -159,21 +176,61 @@ export class PaymentDistributorContractService {
     const transaction = new TransactionBuilder(account, {
       fee: BASE_FEE,
       networkPassphrase: this.networkPassphrase,
-    }).addOperation(this.buildDistributePayoutsTx(input.invoiceId, input.recipients, input.feeRecipient, input.feeBps)).setTimeout(30).build();
+    })
+      .addOperation(
+        this.buildDistributePayoutsTx(
+          input.invoiceId,
+          input.recipients,
+          input.feeRecipient,
+          input.feeBps
+        )
+      )
+      .setTimeout(30)
+      .build();
     const prepared = await this.rpcServer.prepareTransaction(transaction);
     prepared.sign(signer);
-    const submitted = await this.rpcServer.sendTransaction(prepared);
-    if (submitted.status === "ERROR") throw new Error("Payment distribution transaction was rejected by Soroban RPC.");
 
-    for (let attempt = 0; attempt < this.confirmationAttempts; attempt++) {
-      const result = await this.rpcServer.getTransaction(submitted.hash);
-      if (result.status === "SUCCESS") {
-        this.logger.info("Payment distribution confirmed on-chain.", { invoice_id: input.invoiceId, transaction_hash: submitted.hash });
-        return { transactionHash: submitted.hash, ledger: "ledger" in result ? Number(result.ledger) : null };
+    // Submit and map Soroban RPC errors to ServiceError with retryability
+    try {
+      const submitted = await this.rpcServer.sendTransaction(prepared);
+      if (submitted.status === "ERROR") {
+        // Map to a ServiceError (non-retryable transaction rejection)
+        throw mapSorobanError(submitted, {
+          contractId: this.contractId,
+        }).error;
       }
-      if (result.status === "FAILED") throw new Error("Payment distribution transaction reverted on-chain.");
-      await new Promise((resolve) => setTimeout(resolve, this.confirmationPollMs));
+
+      for (let attempt = 0; attempt < this.confirmationAttempts; attempt++) {
+        const result = await this.rpcServer.getTransaction(submitted.hash);
+        if (result.status === "SUCCESS") {
+          this.logger.info("Payment distribution confirmed on-chain.", {
+            invoice_id: input.invoiceId,
+            transaction_hash: submitted.hash,
+          });
+          return {
+            transactionHash: submitted.hash,
+            ledger: "ledger" in result ? Number(result.ledger) : null,
+          };
+        }
+        if (result.status === "FAILED") {
+          throw new ServiceError(
+            "soroban_tx_reverted",
+            "Payment distribution transaction reverted on-chain.",
+            422,
+            { contractId: this.contractId }
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, this.confirmationPollMs));
+      }
+      throw new Error("Timed out waiting for payment distribution confirmation.");
+    } catch (err) {
+      // If it's already a ServiceError, rethrow; otherwise map and throw a sanitized ServiceError
+      if (err instanceof ServiceError || (err instanceof Error && err.name === "ServiceError")) throw err;
+      const mapped = mapSorobanError(err, {
+        contractId: this.contractId,
+        invoiceId: input.invoiceId,
+      });
+      throw mapped.error;
     }
-    throw new Error("Timed out waiting for payment distribution confirmation.");
   }
 }

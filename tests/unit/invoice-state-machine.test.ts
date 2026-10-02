@@ -61,7 +61,9 @@ function createService(invoice: Invoice): InvoiceService {
     count: jest.fn().mockResolvedValue(0),
     create: jest.fn().mockImplementation((data: Partial<Invoice>) => data as Invoice),
   };
-  const mockIPFS = { uploadFile: jest.fn() } as unknown as import("../../src/services/ipfs.service").IPFSService;
+  const mockIPFS = {
+    uploadFile: jest.fn(),
+  } as unknown as import("../../src/services/ipfs.service").IPFSService;
 
   return new InvoiceService({ invoiceRepository: mockRepo, ipfsService: mockIPFS });
 }
@@ -76,10 +78,10 @@ describe("Invoice state machine — valid transitions (issue #110)", () => {
     expect(result.status).toBe(InvoiceStatus.PUBLISHED);
   });
 
-  it("allows PENDING → PUBLISHED", async () => {
+  it("allows PENDING → PUBLISHED on admin approval", async () => {
     const invoice = makePublishableInvoice(InvoiceStatus.PENDING);
     const service = createService(invoice);
-    const result = await service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID });
+    const result = await service.approveInvoice({ invoiceId: invoice.id });
     expect(result.status).toBe(InvoiceStatus.PUBLISHED);
   });
 });
@@ -90,7 +92,7 @@ describe("Invoice state machine — invalid transitions blocked (issue #110)", (
     const service = createService(invoice);
 
     await expect(
-      service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID }),
+      service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID })
     ).rejects.toMatchObject({
       code: "invalid_status_transition",
     });
@@ -101,7 +103,7 @@ describe("Invoice state machine — invalid transitions blocked (issue #110)", (
     const service = createService(invoice);
 
     await expect(
-      service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID }),
+      service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID })
     ).rejects.toMatchObject({
       code: "invalid_status_transition",
     });
@@ -112,7 +114,7 @@ describe("Invoice state machine — invalid transitions blocked (issue #110)", (
     const service = createService(invoice);
 
     await expect(
-      service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID }),
+      service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID })
     ).rejects.toMatchObject({
       code: "invalid_status_transition",
     });
@@ -142,7 +144,7 @@ describe("Invoice state machine — invalid transitions blocked (issue #110)", (
     const service = createService(invoice);
 
     return expect(
-      service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID }),
+      service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID })
     ).rejects.toBeInstanceOf(ServiceError);
   });
 
@@ -151,7 +153,7 @@ describe("Invoice state machine — invalid transitions blocked (issue #110)", (
     const service = createService(invoice);
 
     return expect(
-      service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID }),
+      service.publishInvoice({ invoiceId: invoice.id, sellerId: SELLER_ID })
     ).rejects.toBeInstanceOf(ServiceError);
   });
 });

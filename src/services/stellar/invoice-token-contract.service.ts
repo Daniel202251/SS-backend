@@ -38,7 +38,7 @@ export class InvoiceTokenContractService {
 
   constructor(
     dependenciesOrContractId: string | InvoiceTokenContractServiceDependencies,
-    logger?: AppLogger,
+    logger?: AppLogger
   ) {
     if (typeof dependenciesOrContractId === "string") {
       if (!dependenciesOrContractId) {
@@ -75,11 +75,10 @@ export class InvoiceTokenContractService {
    */
   public buildMintTx(
     recipientAddress: string,
-    tokenAmount: bigint | number | string,
+    tokenAmount: bigint | number | string
   ): xdr.Operation {
     const toScVal = new Address(recipientAddress).toScVal();
-    const amountBigInt =
-      typeof tokenAmount === "bigint" ? tokenAmount : BigInt(tokenAmount);
+    const amountBigInt = typeof tokenAmount === "bigint" ? tokenAmount : BigInt(tokenAmount);
     const amountScVal = nativeToScVal(amountBigInt, { type: "i128" });
 
     return this.contract.call("mint", toScVal, amountScVal);
@@ -128,10 +127,9 @@ export class InvoiceTokenContractService {
   public async mintInvoiceTokens(
     invoiceId: string,
     recipientAddress: string,
-    tokenAmount: bigint | number | string,
+    tokenAmount: bigint | number | string
   ): Promise<MintTokensResult> {
-    const amountBigInt =
-      typeof tokenAmount === "bigint" ? tokenAmount : BigInt(tokenAmount);
+    const amountBigInt = typeof tokenAmount === "bigint" ? tokenAmount : BigInt(tokenAmount);
     const operation = this.buildMintTx(recipientAddress, amountBigInt);
 
     this.logger.info("Minted invoice tokens for invoice", {

@@ -13,7 +13,10 @@ export interface PublishableInvoice {
  * publishing, so investors always have a full day of runway before the
  * invoice is due.
  */
-export function validateInvoiceForPublish(invoice: PublishableInvoice, now: Date = new Date()): void {
+export function validateInvoiceForPublish(
+  invoice: PublishableInvoice,
+  now: Date = new Date()
+): void {
   const leadTimeMs = invoice.dueDate.getTime() - now.getTime();
 
   if (leadTimeMs < MIN_LEAD_TIME_MS) {
@@ -21,7 +24,7 @@ export function validateInvoiceForPublish(invoice: PublishableInvoice, now: Date
       "invalid_due_date",
       "dueDate must be at least 24 hours in the future",
       400,
-      { field: "dueDate" },
+      { field: "dueDate" }
     );
   }
 }

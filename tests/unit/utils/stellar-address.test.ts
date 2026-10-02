@@ -1,4 +1,7 @@
-import { isValidStellarPublicKey, isValidSorobanContractId } from "../../../src/utils/stellar-address.utils";
+import {
+  isValidStellarPublicKey,
+  isValidSorobanContractId,
+} from "../../../src/utils/stellar-address.utils";
 
 describe("stellar-address utils", () => {
   describe("isValidStellarPublicKey", () => {
@@ -48,9 +51,9 @@ describe("stellar-address utils", () => {
 
     it("rejects malformed contract addresses", () => {
       expect(isValidSorobanContractId("C" + "0".repeat(55))).toBe(false);
-      expect(isValidSorobanContractId("CAX62CGE4JWSCDDO6NFUTC2V7VWGX6VNWC6EIB2BPKFYI2YEO5TV5WU")).toBe(
-        false
-      );
+      expect(
+        isValidSorobanContractId("CAX62CGE4JWSCDDO6NFUTC2V7VWGX6VNWC6EIB2BPKFYI2YEO5TV5WU")
+      ).toBe(false);
     });
   });
 });

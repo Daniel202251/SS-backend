@@ -70,18 +70,29 @@ describe("MarketplaceService.getPublishedInvoicesByCursor", () => {
 
     expect(repo.findPublishedInvoicesByCursor).toHaveBeenCalledWith(
       expect.objectContaining({ status: [InvoiceStatus.PUBLISHED] }),
-      expect.objectContaining({ sortField: "amount", order: "DESC", limit: 10, cursor: null }),
+      expect.objectContaining({ sortField: "amount", order: "DESC", limit: 10, cursor: null })
     );
 
     expect(result.data).toEqual([
       {
         id: invoice.id,
+        invoiceId: invoice.id,
         invoiceNumber: invoice.invoiceNumber,
         customerName: invoice.customerName,
+        sellerName: invoice.customerName,
         amount: invoice.amount,
+        faceValue: invoice.amount,
+        fundingTarget: invoice.netAmount || invoice.amount,
+        amountRaised: invoice.fundedAmount || "0",
+        fundedAmount: invoice.fundedAmount || "0",
         discountRate: invoice.discountRate,
+        yieldBps: Math.round(parseFloat(invoice.discountRate || "0") * 100),
+        fundingPercentage: parseFloat(invoice.netAmount || invoice.amount || "0") > 0
+          ? Math.min(100, Math.round((parseFloat(invoice.fundedAmount || "0") / parseFloat(invoice.netAmount || invoice.amount || "0")) * 10000) / 100)
+          : 0,
         netAmount: invoice.netAmount,
         dueDate: invoice.dueDate,
+        fundingDeadline: invoice.dueDate,
         status: invoice.status,
         createdAt: invoice.createdAt,
       },
@@ -101,7 +112,7 @@ describe("MarketplaceService.getPublishedInvoicesByCursor", () => {
 
     expect(repo.findPublishedInvoicesByCursor).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ limit: 100 }),
+      expect.objectContaining({ limit: 100 })
     );
   });
 
@@ -116,7 +127,7 @@ describe("MarketplaceService.getPublishedInvoicesByCursor", () => {
 
     expect(repo.findPublishedInvoicesByCursor).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ limit: 1 }),
+      expect.objectContaining({ limit: 1 })
     );
   });
 
@@ -142,7 +153,7 @@ describe("MarketplaceService.getPublishedInvoicesByCursor", () => {
         order: "ASC",
         limit: 20,
         cursor: "prior-cursor",
-      }),
+      })
     );
   });
 
@@ -154,7 +165,7 @@ describe("MarketplaceService.getPublishedInvoicesByCursor", () => {
     const legacyService = new MarketplaceService({ marketplaceRepository: legacyRepo });
 
     await expect(
-      legacyService.getPublishedInvoicesByCursor({}, { sortField: "amount", limit: 10 }),
+      legacyService.getPublishedInvoicesByCursor({}, { sortField: "amount", limit: 10 })
     ).rejects.toThrow(/does not implement findPublishedInvoicesByCursor/);
   });
 });
@@ -192,7 +203,7 @@ describe("TypeORMMarketplaceRepository.findPublishedInvoicesByCursor (via create
       mockedPaginateQuery.mockClear();
       await service.getPublishedInvoicesByCursor({}, { sortField, limit: 10 });
       expect(mockedPaginateQuery).toHaveBeenCalledWith(
-        expect.objectContaining({ cursorField: expectedCursorField }),
+        expect.objectContaining({ cursorField: expectedCursorField })
       );
     }
   });

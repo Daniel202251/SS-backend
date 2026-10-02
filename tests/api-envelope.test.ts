@@ -79,7 +79,7 @@ describe("Response envelope", () => {
     // Add a route that throws an error before the error middleware is applied
     // We use the router pattern to ensure the route is matched before notFoundMiddleware
     const router = request.agent(app);
-    
+
     // Simulate an internal error by accessing a route that will throw
     // Since we can't add routes after app creation, we'll test via the auth routes
     // which will throw an error from the stub service

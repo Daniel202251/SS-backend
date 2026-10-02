@@ -29,7 +29,7 @@ describe("logSettlementCompletion", () => {
         total_proceeds: "12345.0000000",
         investor_count: 3,
         settled_at: expect.any(String),
-      }),
+      })
     );
   });
 

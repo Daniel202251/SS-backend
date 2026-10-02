@@ -1,0 +1,110 @@
+name: API CI
+
+on:
+  pull_request:
+    branches: [dev]
+  push:
+    branches: [dev]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+        timeout-minutes: 10
+      - name: Run linter
+        run: npm run lint
+        timeout-minutes: 5
+
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+        timeout-minutes: 10
+      - name: Run type check
+        run: npm run type-check
+        timeout-minutes: 5
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+        timeout-minutes: 10
+      - name: Build project
+        run: npm run build
+        timeout-minutes: 5
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: stellarsettle_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d stellarsettle_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --health-start-period 10s
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+        timeout-minutes: 10
+      - name: Wait for PostgreSQL
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U postgres; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+          echo "PostgreSQL did not become ready in time"
+          exit 1
+        timeout-minutes: 2
+      - name: Run tests
+        run: npm test
+        timeout-minutes: 10
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/stellarsettle_test

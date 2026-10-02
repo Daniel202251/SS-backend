@@ -1,4 +1,4 @@
-import { Address, xdr, scValToNative } from "stellar-sdk";
+import { Contract, xdr, scValToNative } from "stellar-sdk";
 import type { AppLogger } from "../../observability/logger";
 import { logger as globalLogger } from "../../observability/logger";
 
@@ -185,12 +185,13 @@ export class ContractGuardService {
  * Builds the base64 ledger key for a contract's persistent `Paused` entry.
  */
 export function buildPausedLedgerKey(contractId: string): string {
+  const contract = new Contract(contractId);
   const key = xdr.LedgerKey.contractData(
     new xdr.LedgerKeyContractData({
-      contract: new Address(contractId).toScAddress(),
+      contract: contract.address().toScAddress(),
       key: xdr.ScVal.scvSymbol(PAUSED_STORAGE_KEY),
       durability: xdr.ContractDataDurability.persistent(),
-    }),
+    })
   );
   return key.toXDR("base64");
 }
@@ -209,7 +210,7 @@ export function decodePausedEntry(entryXdr: string): boolean {
 }
 
 export function createContractGuardService(
-  dependencies: ContractGuardServiceDependencies,
+  dependencies: ContractGuardServiceDependencies
 ): ContractGuardService {
   return new ContractGuardService(dependencies);
 }

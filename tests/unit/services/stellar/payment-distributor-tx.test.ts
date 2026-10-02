@@ -7,7 +7,8 @@ import {
 describe("PaymentDistributorContractService.buildDistributePayoutsTx (Issue #156)", () => {
   // A known-valid contract StrKey, reused from the existing
   // invoice-escrow-contract.service.test.ts fixtures.
-  const PAYMENT_DISTRIBUTOR_CONTRACT_ID = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+  const PAYMENT_DISTRIBUTOR_CONTRACT_ID =
+    "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 
   const SELLER_ADDRESS = Keypair.random().publicKey();
   const INVESTOR_A_ADDRESS = Keypair.random().publicKey();
@@ -38,11 +39,13 @@ describe("PaymentDistributorContractService.buildDistributePayoutsTx (Issue #156
       INVOICE_ID,
       singleRecipient,
       PLATFORM_FEE_ACCOUNT,
-      250,
+      250
     );
 
     const invokeContractArgs = op.body().invokeHostFunctionOp().hostFunction().invokeContract();
-    const invokedContractId = Address.fromScAddress(invokeContractArgs.contractAddress()).toString();
+    const invokedContractId = Address.fromScAddress(
+      invokeContractArgs.contractAddress()
+    ).toString();
 
     expect(invokedContractId).toBe(PAYMENT_DISTRIBUTOR_CONTRACT_ID);
     expect(invokedContractId).toBe(service.contractId);
@@ -53,7 +56,7 @@ describe("PaymentDistributorContractService.buildDistributePayoutsTx (Issue #156
       INVOICE_ID,
       singleRecipient,
       PLATFORM_FEE_ACCOUNT,
-      250,
+      250
     );
 
     const functionName = op
@@ -112,7 +115,7 @@ describe("PaymentDistributorContractService.buildDistributePayoutsTx (Issue #156
         INVOICE_ID,
         singleRecipient,
         PLATFORM_FEE_ACCOUNT,
-        250,
+        250
       );
 
       const args = op.body().invokeHostFunctionOp().hostFunction().invokeContract().args();
@@ -127,7 +130,7 @@ describe("PaymentDistributorContractService.buildDistributePayoutsTx (Issue #156
         INVOICE_ID,
         singleRecipient,
         PLATFORM_FEE_ACCOUNT,
-        feeBps,
+        feeBps
       );
       const args = op.body().invokeHostFunctionOp().hostFunction().invokeContract().args();
       expect(scValToNative(args[4])).toBe(feeBps);
@@ -135,19 +138,19 @@ describe("PaymentDistributorContractService.buildDistributePayoutsTx (Issue #156
 
     it("rejects feeBps above 10000 (100%)", () => {
       expect(() =>
-        service.buildDistributePayoutsTx(INVOICE_ID, singleRecipient, PLATFORM_FEE_ACCOUNT, 10_001),
+        service.buildDistributePayoutsTx(INVOICE_ID, singleRecipient, PLATFORM_FEE_ACCOUNT, 10_001)
       ).toThrow("feeBps must be an integer between 0 and 10000.");
     });
 
     it("rejects a negative feeBps", () => {
       expect(() =>
-        service.buildDistributePayoutsTx(INVOICE_ID, singleRecipient, PLATFORM_FEE_ACCOUNT, -1),
+        service.buildDistributePayoutsTx(INVOICE_ID, singleRecipient, PLATFORM_FEE_ACCOUNT, -1)
       ).toThrow("feeBps must be an integer between 0 and 10000.");
     });
 
     it("rejects a non-integer feeBps", () => {
       expect(() =>
-        service.buildDistributePayoutsTx(INVOICE_ID, singleRecipient, PLATFORM_FEE_ACCOUNT, 12.5),
+        service.buildDistributePayoutsTx(INVOICE_ID, singleRecipient, PLATFORM_FEE_ACCOUNT, 12.5)
       ).toThrow("feeBps must be an integer between 0 and 10000.");
     });
   });
@@ -155,7 +158,7 @@ describe("PaymentDistributorContractService.buildDistributePayoutsTx (Issue #156
   describe("invalid inputs", () => {
     it("throws when recipients is empty", () => {
       expect(() =>
-        service.buildDistributePayoutsTx(INVOICE_ID, [], PLATFORM_FEE_ACCOUNT, 250),
+        service.buildDistributePayoutsTx(INVOICE_ID, [], PLATFORM_FEE_ACCOUNT, 250)
       ).toThrow("At least one payout recipient is required.");
     });
 
@@ -165,13 +168,13 @@ describe("PaymentDistributorContractService.buildDistributePayoutsTx (Issue #156
       ];
 
       expect(() =>
-        service.buildDistributePayoutsTx(INVOICE_ID, recipients, PLATFORM_FEE_ACCOUNT, 250),
+        service.buildDistributePayoutsTx(INVOICE_ID, recipients, PLATFORM_FEE_ACCOUNT, 250)
       ).toThrow();
     });
 
     it("throws when the platform fee account is invalid", () => {
       expect(() =>
-        service.buildDistributePayoutsTx(INVOICE_ID, singleRecipient, "not-a-valid-address", 250),
+        service.buildDistributePayoutsTx(INVOICE_ID, singleRecipient, "not-a-valid-address", 250)
       ).toThrow();
     });
   });

@@ -2,6 +2,7 @@ import {
   calculateInvoiceTerms,
   calculateTenureDays,
 } from "../../../src/utils/discount-calculator.utils";
+import { Decimal } from "decimal.js";
 
 describe("discount-calculator.utils", () => {
   describe("calculateTenureDays", () => {
@@ -83,7 +84,7 @@ describe("discount-calculator.utils", () => {
           faceValue: "-100",
           dueDate: new Date(),
           discountBps: 100,
-        }),
+        })
       ).toThrow("Face value must be a positive number greater than zero");
 
       expect(() =>
@@ -91,8 +92,111 @@ describe("discount-calculator.utils", () => {
           faceValue: "1000",
           dueDate: new Date(),
           discountBps: 12000,
-        }),
+        })
       ).toThrow("Discount BPS must be between 0 and 10,000");
+    });
+
+    describe("Platform fee calculation boundaries", () => {
+      const dueDate = new Date("2026-05-01T00:00:00Z");
+      const referenceDate = new Date("2026-04-01T00:00:00Z");
+
+      it("should handle minimum supported payment amount and zero fee", () => {
+        const result = calculateInvoiceTerms({
+          faceValue: "0.0001", // Smallest non-zero amount for 4 decimal places
+          dueDate,
+          referenceDate,
+          discountBps: 0,
+          platformFeeBps: 0,
+        });
+        expect(result.platformFee).toBe("0.0000");
+        expect(result.advanceAmount).toBe("0.0001");
+        expect(result.investorReturn).toBe("0.0000");
+        
+        const reconciled = new Decimal(result.advanceAmount)
+          .plus(result.investorReturn)
+          .plus(result.platformFee);
+        expect(reconciled.equals("0.0001")).toBe(true);
+      });
+
+      it("should handle largest supported payment amount with near-maximum fee", () => {
+        const largeAmount = "999999999999999.9999";
+        const result = calculateInvoiceTerms({
+          faceValue: largeAmount,
+          dueDate,
+          referenceDate,
+          discountBps: 0,
+          platformFeeBps: 9999, // 99.99% maximum valid fee since 100% throws
+        });
+        
+        // 99.99% of 999999999999999.9999
+        // = 999899999999999.99990001
+        
+        const expectedFee = new Decimal(largeAmount).times(9999).dividedBy(10000).toFixed(4);
+        const expectedAdvance = new Decimal(largeAmount).minus(expectedFee).toFixed(4);
+        
+        expect(result.platformFee).toBe(expectedFee);
+        expect(result.investorReturn).toBe("0.0000");
+        expect(result.advanceAmount).toBe(expectedAdvance);
+
+        const reconciled = new Decimal(result.advanceAmount)
+          .plus(result.investorReturn)
+          .plus(result.platformFee);
+        expect(reconciled.equals(largeAmount)).toBe(true);
+      });
+
+      it("should handle minimum platform fee (1 bps)", () => {
+        const result = calculateInvoiceTerms({
+          faceValue: "10000.0000",
+          dueDate,
+          referenceDate,
+          discountBps: 100, // 1%
+          platformFeeBps: 1, // 0.01%
+        });
+        expect(result.platformFee).toBe("1.0000");
+        expect(result.investorReturn).toBe("100.0000");
+        expect(result.advanceAmount).toBe("9899.0000");
+        
+        const reconciled = new Decimal(result.advanceAmount)
+          .plus(result.investorReturn)
+          .plus(result.platformFee);
+        expect(reconciled.equals("10000.0000")).toBe(true);
+      });
+
+      it("should reject invalid negative platform fee", () => {
+        expect(() =>
+          calculateInvoiceTerms({
+            faceValue: "1000.0000",
+            dueDate,
+            referenceDate,
+            discountBps: 100,
+            platformFeeBps: -1,
+          }),
+        ).toThrow("Platform fee BPS must be between 0 and 10,000");
+      });
+
+      it("should reject platform fee > 10,000", () => {
+        expect(() =>
+          calculateInvoiceTerms({
+            faceValue: "1000.0000",
+            dueDate,
+            referenceDate,
+            discountBps: 100,
+            platformFeeBps: 10001,
+          }),
+        ).toThrow("Platform fee BPS must be between 0 and 10,000");
+      });
+
+      it("should reject total fee and discount >= 10,000", () => {
+        expect(() =>
+          calculateInvoiceTerms({
+            faceValue: "1000.0000",
+            dueDate,
+            referenceDate,
+            discountBps: 5000,
+            platformFeeBps: 5000,
+          }),
+        ).toThrow("Total fee and discount deductions cannot exceed 100% of face value");
+      });
     });
   });
 });

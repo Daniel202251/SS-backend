@@ -22,15 +22,11 @@ describe("isValidInvoiceStateTransition", () => {
     });
 
     it("rejects transition from DRAFT to SETTLED", () => {
-      expect(isValidInvoiceStateTransition(InvoiceStatus.DRAFT, InvoiceStatus.SETTLED)).toBe(
-        false
-      );
+      expect(isValidInvoiceStateTransition(InvoiceStatus.DRAFT, InvoiceStatus.SETTLED)).toBe(false);
     });
 
     it("rejects transition from DRAFT to PENDING", () => {
-      expect(isValidInvoiceStateTransition(InvoiceStatus.DRAFT, InvoiceStatus.PENDING)).toBe(
-        false
-      );
+      expect(isValidInvoiceStateTransition(InvoiceStatus.DRAFT, InvoiceStatus.PENDING)).toBe(false);
     });
 
     it("rejects transition from DRAFT to DRAFT", () => {
@@ -52,9 +48,7 @@ describe("isValidInvoiceStateTransition", () => {
     });
 
     it("rejects transition from PENDING to DRAFT", () => {
-      expect(isValidInvoiceStateTransition(InvoiceStatus.PENDING, InvoiceStatus.DRAFT)).toBe(
-        false
-      );
+      expect(isValidInvoiceStateTransition(InvoiceStatus.PENDING, InvoiceStatus.DRAFT)).toBe(false);
     });
 
     it("rejects transition from PENDING to FUNDED", () => {
@@ -98,9 +92,7 @@ describe("isValidInvoiceStateTransition", () => {
 
   describe("valid transitions from FUNDED", () => {
     it("allows transition from FUNDED to SETTLED", () => {
-      expect(isValidInvoiceStateTransition(InvoiceStatus.FUNDED, InvoiceStatus.SETTLED)).toBe(
-        true
-      );
+      expect(isValidInvoiceStateTransition(InvoiceStatus.FUNDED, InvoiceStatus.SETTLED)).toBe(true);
     });
 
     it("allows transition from FUNDED to CANCELLED", () => {
@@ -134,9 +126,7 @@ describe("isValidInvoiceStateTransition", () => {
     });
 
     it("rejects transition from SETTLED to DRAFT", () => {
-      expect(isValidInvoiceStateTransition(InvoiceStatus.SETTLED, InvoiceStatus.DRAFT)).toBe(
-        false
-      );
+      expect(isValidInvoiceStateTransition(InvoiceStatus.SETTLED, InvoiceStatus.DRAFT)).toBe(false);
     });
 
     it("rejects transition from SETTLED to PENDING", () => {
@@ -167,9 +157,7 @@ describe("isValidInvoiceStateTransition", () => {
   describe("valid transitions from CANCELLED", () => {
     it("rejects all transitions from CANCELLED", () => {
       allStatuses.forEach((status) => {
-        expect(
-          isValidInvoiceStateTransition(InvoiceStatus.CANCELLED, status)
-        ).toBe(false);
+        expect(isValidInvoiceStateTransition(InvoiceStatus.CANCELLED, status)).toBe(false);
       });
     });
   });
@@ -188,9 +176,7 @@ describe("isValidInvoiceStateTransition", () => {
     });
 
     it("rejects transition from FUNDED to FUNDED", () => {
-      expect(isValidInvoiceStateTransition(InvoiceStatus.FUNDED, InvoiceStatus.FUNDED)).toBe(
-        false
-      );
+      expect(isValidInvoiceStateTransition(InvoiceStatus.FUNDED, InvoiceStatus.FUNDED)).toBe(false);
     });
 
     it("rejects transition from CANCELLED to CANCELLED", () => {

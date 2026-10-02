@@ -7,7 +7,7 @@
 export function computeInvestorReturn(
   investedAmount: bigint,
   totalFunded: bigint,
-  settledProceeds: bigint,
+  settledProceeds: bigint
 ): bigint {
   if (totalFunded <= 0n) {
     throw new RangeError("totalFunded must be greater than zero");

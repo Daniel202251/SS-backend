@@ -114,6 +114,52 @@ describe("validateFundingDeadline", () => {
     expect(validateFundingDeadline(iso, NOW)).toBeNull();
   });
 
+  describe("timezone normalization", () => {
+    const originalTz = process.env.TZ;
+
+    beforeEach(() => {
+      process.env.TZ = "America/New_York";
+    });
+
+    afterEach(() => {
+      process.env.TZ = originalTz;
+    });
+
+    it("evaluates equivalent instants identically regardless of string format", () => {
+      const utcString = "2026-03-03T12:00:00.000Z";
+      const offsetString = "2026-03-03T14:00:00.000+02:00";
+      expect(validateFundingDeadline(utcString, NOW)).toBeNull();
+      expect(validateFundingDeadline(offsetString, NOW)).toBeNull();
+    });
+
+    it("rejects equivalent past deadlines across timezones", () => {
+      const utcString = "2026-03-01T11:00:00.000Z";
+      const offsetString = "2026-03-01T06:00:00.000-05:00";
+      expect(validateFundingDeadline(utcString, NOW)).toMatchObject({
+        code: "DUE_DATE_IN_PAST",
+      });
+      expect(validateFundingDeadline(offsetString, NOW)).toMatchObject({
+        code: "DUE_DATE_IN_PAST",
+      });
+    });
+
+    it("enforces the exact boundary consistently across timezones", () => {
+      const utcBoundary = "2026-03-02T12:00:00.000Z";
+      const offsetBoundary = "2026-03-02T17:30:00.000+05:30";
+      expect(validateFundingDeadline(utcBoundary, NOW)).toBeNull();
+      expect(validateFundingDeadline(offsetBoundary, NOW)).toBeNull();
+
+      const utcTooSoon = "2026-03-02T11:59:59.999Z";
+      const offsetTooSoon = "2026-03-02T17:29:59.999+05:30";
+      expect(validateFundingDeadline(utcTooSoon, NOW)).toMatchObject({
+        code: "DUE_DATE_TOO_SOON",
+      });
+      expect(validateFundingDeadline(offsetTooSoon, NOW)).toMatchObject({
+        code: "DUE_DATE_TOO_SOON",
+      });
+    });
+  });
+
   describe("clock source", () => {
     afterEach(() => {
       jest.useRealTimers();
@@ -184,7 +230,7 @@ describe("validateInvoiceForPublish deadline reporting", () => {
     });
     const codes = validateInvoiceForPublish(invoice, NOW).map((e) => e.code);
     expect(codes).toEqual(
-      expect.arrayContaining(["FACE_VALUE_TOO_LOW", "DUE_DATE_IN_PAST", "MISSING_DOCUMENT"]),
+      expect.arrayContaining(["FACE_VALUE_TOO_LOW", "DUE_DATE_IN_PAST", "MISSING_DOCUMENT"])
     );
   });
 });

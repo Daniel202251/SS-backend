@@ -16,9 +16,7 @@ describe("InvoiceTokenContractService - buildMintTx", () => {
   });
 
   it("should throw an error when contractId is empty", () => {
-    expect(() => new InvoiceTokenContractService("")).toThrow(
-      "contractId is required.",
-    );
+    expect(() => new InvoiceTokenContractService("")).toThrow("contractId is required.");
   });
 
   it("should construct a valid InvokeHostFunction operation", () => {
@@ -37,9 +35,7 @@ describe("InvoiceTokenContractService - buildMintTx", () => {
     const invokeHostFunctionOp = op.body().invokeHostFunctionOp();
     const hostFunction = invokeHostFunctionOp.hostFunction();
 
-    expect(hostFunction.switch().name).toBe(
-      "hostFunctionTypeInvokeContract",
-    );
+    expect(hostFunction.switch().name).toBe("hostFunctionTypeInvokeContract");
 
     const invokeContractArgs = hostFunction.invokeContract();
     const contractAddressScVal = invokeContractArgs.contractAddress();
@@ -52,11 +48,7 @@ describe("InvoiceTokenContractService - buildMintTx", () => {
     const tokenAmount = 750_000n;
     const op = service.buildMintTx(TEST_RECIPIENT, tokenAmount);
 
-    const invokeContractArgs = op
-      .body()
-      .invokeHostFunctionOp()
-      .hostFunction()
-      .invokeContract();
+    const invokeContractArgs = op.body().invokeHostFunctionOp().hostFunction().invokeContract();
 
     // Verify function name
     const functionName = invokeContractArgs.functionName().toString();
@@ -83,12 +75,7 @@ describe("InvoiceTokenContractService - buildMintTx", () => {
     const amountFromString = service.buildMintTx(TEST_RECIPIENT, "1000000");
 
     const getAmount = (operation: xdr.Operation) => {
-      const args = operation
-        .body()
-        .invokeHostFunctionOp()
-        .hostFunction()
-        .invokeContract()
-        .args();
+      const args = operation.body().invokeHostFunctionOp().hostFunction().invokeContract().args();
       return BigInt(scValToNative(args[1]));
     };
 
@@ -105,12 +92,7 @@ describe("InvoiceTokenContractService - buildMintTx", () => {
     const opLarge = service.buildMintTx(TEST_RECIPIENT, largeAmount);
 
     const getAmount = (operation: xdr.Operation) => {
-      const args = operation
-        .body()
-        .invokeHostFunctionOp()
-        .hostFunction()
-        .invokeContract()
-        .args();
+      const args = operation.body().invokeHostFunctionOp().hostFunction().invokeContract().args();
       return BigInt(scValToNative(args[1]));
     };
 
@@ -124,11 +106,7 @@ describe("InvoiceTokenContractService - buildMintTx", () => {
 
   describe("mintInvoiceTokens", () => {
     it("should build and return structured mint result", async () => {
-      const result = await service.mintInvoiceTokens(
-        "INV-123",
-        TEST_RECIPIENT,
-        500_000n,
-      );
+      const result = await service.mintInvoiceTokens("INV-123", TEST_RECIPIENT, 500_000n);
 
       expect(result.invoiceId).toBe("INV-123");
       expect(result.contractId).toBe(TOKEN_CONTRACT_ID);
@@ -141,11 +119,7 @@ describe("InvoiceTokenContractService - buildMintTx", () => {
   describe("buildBalanceTx & getTokenBalance", () => {
     it("should construct valid balance host function invocation", () => {
       const op = service.buildBalanceTx(TEST_RECIPIENT);
-      const invokeContractArgs = op
-        .body()
-        .invokeHostFunctionOp()
-        .hostFunction()
-        .invokeContract();
+      const invokeContractArgs = op.body().invokeHostFunctionOp().hostFunction().invokeContract();
 
       expect(invokeContractArgs.functionName().toString()).toBe("balance");
       const args = invokeContractArgs.args();

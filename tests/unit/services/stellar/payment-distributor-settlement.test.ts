@@ -18,29 +18,60 @@ describe("PaymentDistributorContractService settlement execution", () => {
 
   it("submits and waits for successful ledger confirmation", async () => {
     const service = new PaymentDistributorContractService({
-      contractId, server: createRpc(), networkPassphrase: "Test SDF Network ; September 2015",
-      platformSecretKey: signer.secret(), verifyDistributorWiring: async () => true,
-      confirmationPollMs: 0, confirmationAttempts: 2,
+      contractId,
+      server: createRpc(),
+      networkPassphrase: "Test SDF Network ; September 2015",
+      platformSecretKey: signer.secret(),
+      verifyDistributorWiring: async () => true,
+      confirmationPollMs: 0,
+      confirmationAttempts: 2,
     });
-    await expect(service.distributePayouts({
-      invoiceId: "INV-1", totalAmountStroops: 1_000n, feeRecipient, feeBps: 250,
-      recipients: [{ address: recipient, amountStroops: 975n }],
-    })).resolves.toEqual({ transactionHash: "tx-hash", ledger: 77 });
+    await expect(
+      service.distributePayouts({
+        invoiceId: "INV-1",
+        totalAmountStroops: 1_000n,
+        feeRecipient,
+        feeBps: 250,
+        recipients: [{ address: recipient, amountStroops: 975n }],
+      })
+    ).resolves.toEqual({ transactionHash: "tx-hash", ledger: 77 });
   });
 
   it("stops without settlement when wiring is not initialized", async () => {
     const service = new PaymentDistributorContractService({
-      contractId, server: createRpc(), networkPassphrase: "Test SDF Network ; September 2015",
-      platformSecretKey: signer.secret(), verifyDistributorWiring: async () => false,
+      contractId,
+      server: createRpc(),
+      networkPassphrase: "Test SDF Network ; September 2015",
+      platformSecretKey: signer.secret(),
+      verifyDistributorWiring: async () => false,
     });
-    await expect(service.distributePayouts({ invoiceId: "INV-1", totalAmountStroops: 1_000n, feeRecipient, feeBps: 250, recipients: [{ address: recipient, amountStroops: 975n }] })).rejects.toThrow("not initialized");
+    await expect(
+      service.distributePayouts({
+        invoiceId: "INV-1",
+        totalAmountStroops: 1_000n,
+        feeRecipient,
+        feeBps: 250,
+        recipients: [{ address: recipient, amountStroops: 975n }],
+      })
+    ).rejects.toThrow("not initialized");
   });
 
   it("surfaces a reverted transaction", async () => {
     const service = new PaymentDistributorContractService({
-      contractId, server: createRpc("FAILED"), networkPassphrase: "Test SDF Network ; September 2015",
-      platformSecretKey: signer.secret(), confirmationPollMs: 0,
+      contractId,
+      server: createRpc("FAILED"),
+      networkPassphrase: "Test SDF Network ; September 2015",
+      platformSecretKey: signer.secret(),
+      confirmationPollMs: 0,
     });
-    await expect(service.distributePayouts({ invoiceId: "INV-1", totalAmountStroops: 1_000n, feeRecipient, feeBps: 250, recipients: [{ address: recipient, amountStroops: 975n }] })).rejects.toThrow("reverted");
+    await expect(
+      service.distributePayouts({
+        invoiceId: "INV-1",
+        totalAmountStroops: 1_000n,
+        feeRecipient,
+        feeBps: 250,
+        recipients: [{ address: recipient, amountStroops: 975n }],
+      })
+    ).rejects.toThrow("reverted");
   });
 });

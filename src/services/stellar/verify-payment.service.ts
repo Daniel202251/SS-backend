@@ -102,9 +102,7 @@ export class VerifyPaymentService {
     this.fetchImplementation = dependencies.fetchImplementation ?? fetch;
     this.sleep =
       dependencies.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
-    this.logger = (dependencies.logger ?? VerifyPaymentService.NOOP_LOGGER).child({
-      component: "stellar-verify-payment",
-    });
+    this.logger = dependencies.logger ?? VerifyPaymentService.NOOP_LOGGER;
   }
 
   async verifyPayment(input: PaymentVerificationInput): Promise<PaymentVerificationResult> {
@@ -137,28 +135,11 @@ export class VerifyPaymentService {
       );
     }
 
-    let matchedPayment;
-    try {
-      matchedPayment = await this.fetchAndValidatePayment(
-        input.stellarTxHash,
-        investment.investmentAmount,
-        input.operationIndex
-      );
-    } catch (err) {
-      // Emit a structured log for validation rejections
-      this.logger.warn("Investment funding validation rejected.", {
-        event: "investment_funding_rejected",
-        investment_id: investment.id,
-        invoice_id: investment.invoiceId,
-        wallet_id: investment.investorId,
-        stellar_tx_hash: input.stellarTxHash,
-        operation_index: input.operationIndex ?? null,
-        error_code: err instanceof ServiceError ? err.code : undefined,
-        error_reason: err instanceof Error ? err.message : String(err),
-      });
-
-      throw err;
-    }
+    const matchedPayment = await this.fetchAndValidatePayment(
+      input.stellarTxHash,
+      investment.investmentAmount,
+      input.operationIndex
+    );
 
     return this.transactionRunner.runInTransaction(async (unitOfWork) => {
       const lockedInvestment = await unitOfWork.findInvestmentByIdForUpdate(input.investmentId);
@@ -288,11 +269,17 @@ export class VerifyPaymentService {
     );
 
     const paymentOperations = (operations._embedded?.records ?? [])
-      .map((operation, index) => ({
-        ...normalizeHorizonPayment(operation),
-        operationIndex: index,
-      }))
-      .filter((operation) => operation.type === "payment");
+      .map((operation, index) => {
+        const record = operation as unknown as Record<string, unknown>;
+        if (record?.type !== "payment") {
+          return null;
+        }
+        return {
+          ...normalizeHorizonPayment(operation),
+          operationIndex: index,
+        };
+      })
+      .filter((operation): operation is NonNullable<typeof operation> => operation !== null);
 
     const matchingOperations = paymentOperations.filter((operation) => {
       if (operationIndex !== undefined && operation.operationIndex !== operationIndex) {
@@ -441,7 +428,7 @@ export function createVerifyPaymentService(
   });
 }
 
-class RetryableHorizonError extends Error {}
+export class RetryableHorizonError extends Error {}
 
 function ensureTrailingSlash(value: string): string {
   return value.endsWith("/") ? value : `${value}/`;

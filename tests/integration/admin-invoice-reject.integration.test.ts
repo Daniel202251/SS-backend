@@ -1,6 +1,9 @@
 import crypto from "crypto";
 import { InvoiceService } from "../../src/services/invoice.service";
-import type { InvoiceRepositoryContract, NotificationSink } from "../../src/services/invoice.service";
+import type {
+  InvoiceRepositoryContract,
+  NotificationSink,
+} from "../../src/services/invoice.service";
 import { Invoice } from "../../src/models/Invoice.model";
 import { InvoiceStatus, NotificationType } from "../../src/types/enums";
 import { ServiceError } from "../../src/utils/service-error";
@@ -40,8 +43,7 @@ class InMemoryInvoiceRepository implements InvoiceRepositoryContract {
   async findOneBy(options: { id?: string; invoiceNumber?: string }) {
     for (const invoice of this.invoices.values()) {
       if (options.id && invoice.id === options.id) return invoice;
-      if (options.invoiceNumber && invoice.invoiceNumber === options.invoiceNumber)
-        return invoice;
+      if (options.invoiceNumber && invoice.invoiceNumber === options.invoiceNumber) return invoice;
     }
     return null;
   }
@@ -55,7 +57,7 @@ class InMemoryInvoiceRepository implements InvoiceRepositoryContract {
     return [...this.invoices.values()].filter(
       (inv) =>
         inv.sellerId === options.where.sellerId &&
-        (options.where.status == null || inv.status === options.where.status),
+        (options.where.status == null || inv.status === options.where.status)
     );
   }
 
@@ -100,7 +102,7 @@ function noopIpfsService(): IPFSService {
 
 function seedPendingInvoice(repo: InMemoryInvoiceRepository, sellerId: string): Invoice {
   const now = new Date();
-  const invoice: Invoice = {
+  const invoice = {
     id: crypto.randomUUID(),
     sellerId,
     invoiceNumber: `INV-${crypto.randomBytes(4).toString("hex")}`,
@@ -117,10 +119,10 @@ function seedPendingInvoice(repo: InMemoryInvoiceRepository, sellerId: string): 
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
-    seller: undefined as unknown as Invoice["seller"],
+    seller: { id: sellerId, stellarAddress: "GTEST" } as unknown as Invoice["seller"],
     investments: [],
     transactions: [],
-  } as Invoice;
+  } as unknown as Invoice;
 
   repo.save(invoice);
   return invoice;
@@ -175,7 +177,7 @@ describe("Admin invoice reject: persists reason, transitions status, notifies se
     expect(notificationSink.sent).toHaveLength(1);
     const [notification] = notificationSink.sent;
     expect(notification.userId).toBe(sellerA);
-    expect(notification.type).toBe(NotificationType.INVOICE);
+    expect(notification.type).toBe(NotificationType.INVOICE_REJECTED);
     expect(notification.message).toContain(reason);
   });
 
@@ -186,7 +188,7 @@ describe("Admin invoice reject: persists reason, transitions status, notifies se
     expect(notificationSink.sent).toHaveLength(1);
 
     await expect(
-      service.rejectInvoice({ invoiceId: invoice.id, rejectionReason: "Second reason" }),
+      service.rejectInvoice({ invoiceId: invoice.id, rejectionReason: "Second reason" })
     ).rejects.toMatchObject({
       code: "invoice_already_rejected",
       statusCode: 409,
@@ -200,7 +202,7 @@ describe("Admin invoice reject: persists reason, transitions status, notifies se
 
   it("rejects with 404 when the invoice does not exist", async () => {
     await expect(
-      service.rejectInvoice({ invoiceId: crypto.randomUUID(), rejectionReason: "N/A" }),
+      service.rejectInvoice({ invoiceId: crypto.randomUUID(), rejectionReason: "N/A" })
     ).rejects.toMatchObject({ code: "invoice_not_found", statusCode: 404 });
   });
 
@@ -210,7 +212,7 @@ describe("Admin invoice reject: persists reason, transitions status, notifies se
     await repo.save(invoice);
 
     await expect(
-      service.rejectInvoice({ invoiceId: invoice.id, rejectionReason: "Too late" }),
+      service.rejectInvoice({ invoiceId: invoice.id, rejectionReason: "Too late" })
     ).rejects.toMatchObject({
       code: "invalid_status_transition",
       statusCode: 409,

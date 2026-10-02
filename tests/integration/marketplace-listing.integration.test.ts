@@ -1,5 +1,8 @@
 import crypto from "crypto";
-import { MarketplaceService, MarketplaceRepositoryContract } from "../../src/services/marketplace.service";
+import {
+  MarketplaceService,
+  MarketplaceRepositoryContract,
+} from "../../src/services/marketplace.service";
 import { Invoice } from "../../src/models/Invoice.model";
 import { InvoiceStatus } from "../../src/types/enums";
 
@@ -12,7 +15,8 @@ import { InvoiceStatus } from "../../src/types/enums";
 function createFakeMarketplaceRepository(invoices: Invoice[]): MarketplaceRepositoryContract {
   return {
     async findPublishedInvoices(filters) {
-      const statuses = filters.status && filters.status.length > 0 ? filters.status : [InvoiceStatus.PUBLISHED];
+      const statuses =
+        filters.status && filters.status.length > 0 ? filters.status : [InvoiceStatus.PUBLISHED];
       const matched = invoices.filter((invoice) => statuses.includes(invoice.status));
       return { invoices: matched, total: matched.length };
     },
@@ -50,7 +54,13 @@ describe("Marketplace listing integration: filtering invoices by status", () => 
   const fundedInvoice = createInvoice({ status: InvoiceStatus.FUNDED });
   const settledInvoice = createInvoice({ status: InvoiceStatus.SETTLED });
 
-  const allInvoices = [draftInvoice, publishedInvoiceA, publishedInvoiceB, fundedInvoice, settledInvoice];
+  const allInvoices = [
+    draftInvoice,
+    publishedInvoiceA,
+    publishedInvoiceB,
+    fundedInvoice,
+    settledInvoice,
+  ];
 
   function createService(): MarketplaceService {
     return new MarketplaceService({
@@ -65,7 +75,7 @@ describe("Marketplace listing integration: filtering invoices by status", () => 
 
     expect(result.data).toHaveLength(2);
     expect(result.data.map((invoice) => invoice.id).sort()).toEqual(
-      [publishedInvoiceA.id, publishedInvoiceB.id].sort(),
+      [publishedInvoiceA.id, publishedInvoiceB.id].sort()
     );
     expect(result.data.every((invoice) => invoice.status === InvoiceStatus.PUBLISHED)).toBe(true);
   });
@@ -73,7 +83,9 @@ describe("Marketplace listing integration: filtering invoices by status", () => 
   it("returns only funded invoices when filtered by status=funded", async () => {
     const marketplaceService = createService();
 
-    const result = await marketplaceService.getPublishedInvoices({ status: [InvoiceStatus.FUNDED] });
+    const result = await marketplaceService.getPublishedInvoices({
+      status: [InvoiceStatus.FUNDED],
+    });
 
     expect(result.data).toHaveLength(1);
     expect(result.data[0].id).toBe(fundedInvoice.id);
@@ -82,7 +94,9 @@ describe("Marketplace listing integration: filtering invoices by status", () => 
   it("returns only settled invoices when filtered by status=settled", async () => {
     const marketplaceService = createService();
 
-    const result = await marketplaceService.getPublishedInvoices({ status: [InvoiceStatus.SETTLED] });
+    const result = await marketplaceService.getPublishedInvoices({
+      status: [InvoiceStatus.SETTLED],
+    });
 
     expect(result.data).toHaveLength(1);
     expect(result.data[0].id).toBe(settledInvoice.id);

@@ -1,30 +1,24 @@
 import type { NextFunction, Request, Response } from "express";
 import type { AppLogger } from "../observability/logger";
 
-import { AppError, HttpError } from "../utils/http-error";
+import { AppError, HttpError, PublicAppError } from "../utils/http-error";
 import type { AuthFailureDetails } from "../lib/auth-failure";
 
-export function notFoundMiddleware(
-  _req: Request,
-  _res: Response,
-  next: NextFunction
-) {
+export function notFoundMiddleware(_req: Request, _res: Response, next: NextFunction) {
   next(new HttpError(404, "Route not found."));
 }
 
 export function createErrorMiddleware(logger: AppLogger) {
-  return (
-    error: unknown,
-    req: Request,
-    res: Response,
-    _next: NextFunction,
-  ): void => {
+  return (error: unknown, req: Request, res: Response, _next: NextFunction): void => {
     if (error instanceof AppError || error instanceof HttpError) {
       res.status(error.statusCode).json({
         success: false,
         error: {
           code: error.code,
           message: error.message,
+          ...(error instanceof PublicAppError && error.details !== undefined
+            ? { details: error.details }
+            : {}),
         },
       });
 

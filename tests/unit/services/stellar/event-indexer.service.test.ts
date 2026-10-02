@@ -49,7 +49,7 @@ describe("EventIndexerService (Issue #135)", () => {
   describe("Initialization", () => {
     it("should throw an error when contractIds array is empty", () => {
       expect(() => new EventIndexerService({ contractIds: [] })).toThrow(
-        "At least one contractId is required.",
+        "At least one contractId is required."
       );
     });
 
@@ -130,7 +130,7 @@ describe("EventIndexerService (Issue #135)", () => {
           startLedger: 1999,
           limit: 50,
           filters: [{ type: "contract", contractIds: [ESCROW_CONTRACT_ID] }],
-        }),
+        })
       );
     });
   });
@@ -161,7 +161,7 @@ describe("EventIndexerService (Issue #135)", () => {
       expect(mockEventLogRepo.save).toHaveBeenCalled();
       expect(mockInvoiceRepo.findOne).toHaveBeenCalledWith({ where: { id: "INV-100" } });
       expect(mockInvoiceRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "INV-100", status: InvoiceStatus.PUBLISHED }),
+        expect.objectContaining({ id: "INV-100", status: InvoiceStatus.PUBLISHED })
       );
     });
 
@@ -189,7 +189,7 @@ describe("EventIndexerService (Issue #135)", () => {
 
       await service.ingestEvents([decodedEvent]);
       expect(mockInvoiceRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "INV-100", status: InvoiceStatus.FUNDED }),
+        expect.objectContaining({ id: "INV-100", status: InvoiceStatus.FUNDED })
       );
     });
 
@@ -217,7 +217,7 @@ describe("EventIndexerService (Issue #135)", () => {
 
       await service.ingestEvents([decodedEvent]);
       expect(mockInvoiceRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "INV-100", status: InvoiceStatus.SETTLED }),
+        expect.objectContaining({ id: "INV-100", status: InvoiceStatus.SETTLED })
       );
     });
 
@@ -245,7 +245,7 @@ describe("EventIndexerService (Issue #135)", () => {
 
       await service.ingestEvents([decodedEvent]);
       expect(mockInvoiceRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "INV-100", status: InvoiceStatus.SETTLED }),
+        expect.objectContaining({ id: "INV-100", status: InvoiceStatus.SETTLED })
       );
     });
   });
@@ -275,7 +275,7 @@ describe("EventIndexerService (Issue #135)", () => {
       service.stop();
       expect(mockLogger.info).toHaveBeenCalledWith(
         "Starting Soroban event indexer service",
-        expect.any(Object),
+        expect.any(Object)
       );
       expect(mockLogger.info).toHaveBeenCalledWith("Stopped Soroban event indexer service");
     });

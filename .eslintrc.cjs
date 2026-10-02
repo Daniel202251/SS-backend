@@ -18,6 +18,7 @@ module.exports = {
   ],
   ignorePatterns: ["dist/", "node_modules/", "coverage/", "*.cjs"],
   rules: {
+    "no-useless-escape": "off",
     "@typescript-eslint/no-unused-vars": [
       "error",
       {

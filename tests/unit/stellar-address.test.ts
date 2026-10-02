@@ -10,9 +10,7 @@ describe("isValidStellarPublicKey", () => {
   it("returns false for malformed G-addresses", () => {
     expect(isValidStellarPublicKey("GABC")).toBe(false);
     expect(
-      isValidStellarPublicKey(
-        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-      ),
+      isValidStellarPublicKey("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
     ).toBe(false);
   });
 

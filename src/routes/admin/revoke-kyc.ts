@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { DataSource } from "typeorm";
 import { User } from "@/models/User.model";
 import { KYCStatus } from "@/types/enums";
-import { logKYCStatusChange } from "@/lib/kyc-status-log";
+import { logKYCStatusChange, logKYCReviewFailure } from "@/lib/kyc-status-log";
 import { logger } from "@/observability/logger";
 
 interface RevokeKYCBody {
@@ -20,10 +20,23 @@ interface RevokeKYCBody {
  * them able to re-submit. Only an approved user can be revoked — revoking
  * anything else would be a no-op that still wrote an audit entry.
  */
-export async function revokeKYC(req: Request<unknown, unknown, RevokeKYCBody>, res: Response, dataSource: DataSource) {
+export async function revokeKYC(
+  req: Request<unknown, unknown, RevokeKYCBody>,
+  res: Response,
+  dataSource: DataSource
+) {
   try {
     const adminKey = req.headers["x-admin-key"];
+    const correlationId = req.headers["x-request-id"] as string | undefined;
+
     if (adminKey !== process.env.ADMIN_API_KEY) {
+      logKYCReviewFailure(logger, {
+        userId: req.body?.userId,
+        reviewerId: req.body?.reviewerId,
+        action: "revoke",
+        failureCategory: "unauthorized",
+        correlationId,
+      });
       return res.status(401).json({ error: "Unauthorized" });
     }
 
@@ -32,11 +45,26 @@ export async function revokeKYC(req: Request<unknown, unknown, RevokeKYCBody>, r
     const userRepo = dataSource.getRepository(User);
     const user = await userRepo.findOneBy({ id: userId });
     if (!user) {
+      logKYCReviewFailure(logger, {
+        userId,
+        reviewerId,
+        action: "revoke",
+        failureCategory: "user_not_found",
+        correlationId,
+      });
       return res.status(404).json({ error: "User not found" });
     }
 
     const previousStatus = user.kycStatus;
     if (previousStatus !== KYCStatus.APPROVED) {
+      logKYCReviewFailure(logger, {
+        userId,
+        reviewerId,
+        action: "revoke",
+        failureCategory: "invalid_state",
+        correlationId,
+        errorDetails: `Cannot revoke KYC for a user whose status is ${previousStatus}.`,
+      });
       return res.status(409).json({
         error: {
           code: "KYC_NOT_APPROVED",
@@ -63,6 +91,16 @@ export async function revokeKYC(req: Request<unknown, unknown, RevokeKYCBody>, r
 
     return res.json({ success: true });
   } catch (err: unknown) {
+    const correlationId = req.headers["x-request-id"] as string | undefined;
+    logKYCReviewFailure(logger, {
+      userId: req.body?.userId,
+      reviewerId: req.body?.reviewerId,
+      action: "revoke",
+      failureCategory: "database_error",
+      correlationId,
+      errorDetails: err instanceof Error ? err.message : String(err),
+    });
+
     const appErr = err as { status?: number; code?: string; message?: string };
     return res.status(appErr.status ?? 500).json({
       error: {

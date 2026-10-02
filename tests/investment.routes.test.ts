@@ -32,7 +32,7 @@ describe("Investment Routes", () => {
       createInvestmentRouter({
         investmentService: mockInvestmentService,
         authService: mockAuthService,
-      }),
+      })
     );
     app.use(createErrorMiddleware(logger));
   });

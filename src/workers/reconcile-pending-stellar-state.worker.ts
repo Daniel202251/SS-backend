@@ -10,6 +10,7 @@ import { Investment } from "../models/Investment.model";
 import { Transaction } from "../models/Transaction.model";
 import { InvestmentStatus, TransactionStatus, TransactionType } from "../types/enums";
 import { ServiceError } from "../utils/service-error";
+import { classifyReconciliationError } from "../services/stellar/reconciliation-retry";
 import type { AppLogger } from "../observability/logger";
 
 type YieldControl = () => Promise<void>;
@@ -77,6 +78,7 @@ export class ReconcilePendingStellarStateWorker {
   private readonly clearIntervalFn: typeof clearInterval;
   private intervalHandle: IntervalHandle | null = null;
   private inFlightTick: Promise<ReconciliationTickResult> | null = null;
+  private readonly attemptTracker = new Map<string, number>();
 
   constructor(dependencies: ReconcilePendingStellarStateWorkerDependencies) {
     this.repository = dependencies.repository;
@@ -133,6 +135,8 @@ export class ReconcilePendingStellarStateWorker {
     try {
       const candidates = await this.repository.findPendingCandidates(cutoff, this.config.batchSize);
 
+      this.attemptTracker.clear();
+
       const cycleId = randomUUID();
       this.logger.info("Started Stellar reconciliation tick.", {
         cycle_id: cycleId,
@@ -152,6 +156,7 @@ export class ReconcilePendingStellarStateWorker {
         }
 
         const candidate = candidates[index];
+        const candidateKey = this.candidateKey(candidate);
 
         try {
           const verificationResult = await this.paymentVerifier.verifyPayment({
@@ -161,6 +166,7 @@ export class ReconcilePendingStellarStateWorker {
           });
 
           result.processed += 1;
+          this.attemptTracker.delete(candidateKey);
 
           if (verificationResult.outcome === "verified") {
             result.verified += 1;
@@ -170,14 +176,23 @@ export class ReconcilePendingStellarStateWorker {
         } catch (error) {
           result.processed += 1;
           result.failed += 1;
+
+          const attempt = (this.attemptTracker.get(candidateKey) ?? 0) + 1;
+          this.attemptTracker.set(candidateKey, attempt);
+
+          const classification = classifyReconciliationError(error, attempt);
+
           this.logger.warn("Failed to reconcile pending Stellar state.", {
             event: "investment_funding_failed",
             investment_id: candidate.investmentId,
             stellar_tx_hash: candidate.stellarTxHash,
             operation_index: candidate.operationIndex,
             source: candidate.source,
-            error_code: error instanceof ServiceError ? error.code : undefined,
-            error_reason: error instanceof Error ? error.message : "Unknown error",
+            errorCode: error instanceof ServiceError ? error.code : undefined,
+            retryable: classification.retryable,
+            failureKind: classification.kind,
+            attempt: classification.attempt,
+            error: error instanceof Error ? error.message : "Unknown error",
           });
         }
 
@@ -234,6 +249,10 @@ export class ReconcilePendingStellarStateWorker {
     });
 
     await this.inFlightTick;
+  }
+
+  private candidateKey(candidate: ReconciliationCandidate): string {
+    return `${candidate.source}:${candidate.investmentId}:${candidate.stellarTxHash}`;
   }
 }
 

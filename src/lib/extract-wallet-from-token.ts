@@ -7,10 +7,7 @@ import jwt from "jsonwebtoken";
  * Returns null for: missing token, expired token, invalid signature,
  * missing `sub` claim. Never throws.
  */
-export function extractWalletFromToken(
-  token: string | undefined,
-  secret: string,
-): string | null {
+export function extractWalletFromToken(token: string | undefined, secret: string): string | null {
   if (!token) {
     return null;
   }

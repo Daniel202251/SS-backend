@@ -1,5 +1,8 @@
 import crypto from "crypto";
-import { MarketplaceService, MarketplaceRepositoryContract } from "../../src/services/marketplace.service";
+import {
+  MarketplaceService,
+  MarketplaceRepositoryContract,
+} from "../../src/services/marketplace.service";
 import { Invoice } from "../../src/models/Invoice.model";
 import { InvoiceStatus } from "../../src/types/enums";
 
@@ -10,14 +13,13 @@ import { InvoiceStatus } from "../../src/types/enums";
 function createFakeMarketplaceRepository(invoices: Invoice[]): MarketplaceRepositoryContract {
   return {
     async findPublishedInvoices(filters) {
-      const statuses = filters.status && filters.status.length > 0 ? filters.status : [InvoiceStatus.PUBLISHED];
+      const statuses =
+        filters.status && filters.status.length > 0 ? filters.status : [InvoiceStatus.PUBLISHED];
       let matched = invoices.filter((invoice) => statuses.includes(invoice.status));
 
       if (filters.search) {
         const term = filters.search.toLowerCase();
-        matched = matched.filter((inv) =>
-          inv.customerName.toLowerCase().includes(term),
-        );
+        matched = matched.filter((inv) => inv.customerName.toLowerCase().includes(term));
       }
 
       return { invoices: matched, total: matched.length };

@@ -43,8 +43,18 @@ describe("Investor dashboard aggregate", () => {
 
   it("aggregates active, settled, and failed positions without leaking other investors", async () => {
     const investments = [
-      seedInvestment({ id: "inv-1", investorId: walletAId, investmentAmount: "3000.0000", status: InvestmentStatus.PENDING }),
-      seedInvestment({ id: "inv-2", investorId: walletAId, investmentAmount: "2000.0000", status: InvestmentStatus.CONFIRMED }),
+      seedInvestment({
+        id: "inv-1",
+        investorId: walletAId,
+        investmentAmount: "3000.0000",
+        status: InvestmentStatus.PENDING,
+      }),
+      seedInvestment({
+        id: "inv-2",
+        investorId: walletAId,
+        investmentAmount: "2000.0000",
+        status: InvestmentStatus.CONFIRMED,
+      }),
       seedInvestment({
         id: "inv-3",
         investorId: walletAId,
@@ -115,7 +125,11 @@ describe("Investor dashboard aggregate", () => {
 
   it("excludes cancelled investments from the active count", async () => {
     mockRepository.find.mockResolvedValue([
-      seedInvestment({ id: "inv-1", investmentAmount: "800.0000", status: InvestmentStatus.CANCELLED }),
+      seedInvestment({
+        id: "inv-1",
+        investmentAmount: "800.0000",
+        status: InvestmentStatus.CANCELLED,
+      }),
     ]);
 
     const dashboard = await investmentService.getInvestorDashboard(walletAId);

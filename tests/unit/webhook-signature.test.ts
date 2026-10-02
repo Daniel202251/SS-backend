@@ -1,7 +1,4 @@
-import {
-  computeWebhookSignature,
-  verifyWebhookSignature,
-} from "../../src/utils/webhook-signature";
+import { computeWebhookSignature, verifyWebhookSignature } from "../../src/utils/webhook-signature";
 
 describe("verifyWebhookSignature", () => {
   const SECRET_A = "whsec_test_secret_a_12345";
@@ -29,9 +26,13 @@ describe("verifyWebhookSignature", () => {
   });
 
   it("should return false for empty inputs", () => {
-    expect(verifyWebhookSignature("", computeWebhookSignature(PAYLOAD, SECRET_A), SECRET_A)).toBe(false);
+    expect(verifyWebhookSignature("", computeWebhookSignature(PAYLOAD, SECRET_A), SECRET_A)).toBe(
+      false
+    );
     expect(verifyWebhookSignature(PAYLOAD, "", SECRET_A)).toBe(false);
-    expect(verifyWebhookSignature(PAYLOAD, computeWebhookSignature(PAYLOAD, SECRET_A), "")).toBe(false);
+    expect(verifyWebhookSignature(PAYLOAD, computeWebhookSignature(PAYLOAD, SECRET_A), "")).toBe(
+      false
+    );
   });
 
   it("should never throw an exception", () => {

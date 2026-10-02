@@ -16,7 +16,7 @@ interface LogEntry {
 class CaptureLogger implements AppLogger {
   constructor(
     readonly entries: LogEntry[] = [],
-    private readonly defaultMetadata: LogMetadata = {},
+    private readonly defaultMetadata: LogMetadata = {}
   ) {}
 
   debug(message: string, metadata: LogMetadata = {}): void {
@@ -74,7 +74,7 @@ class CaptureLogger implements AppLogger {
 function createCandidate(
   investmentId: string,
   stellarTxHash: string,
-  overrides: Partial<ReconciliationCandidate> = {},
+  overrides: Partial<ReconciliationCandidate> = {}
 ): ReconciliationCandidate {
   return {
     investmentId,
@@ -87,7 +87,7 @@ function createCandidate(
 
 function createVerifiedResult(
   investmentId: string,
-  outcome: "verified" | "already_verified",
+  outcome: "verified" | "already_verified"
 ): PaymentVerificationResult {
   return {
     outcome,
@@ -107,22 +107,22 @@ describe("ReconcilePendingStellarStateWorker", () => {
   it("reconciles actionable candidates, continues after errors, and yields between items", async () => {
     const now = new Date("2026-01-01T00:10:00.000Z");
     const repository = {
-      findPendingCandidates: jest.fn().mockResolvedValue([
-        createCandidate("investment-1", "hash-1"),
-        createCandidate("investment-2", "hash-2"),
-        createCandidate("investment-3", "hash-3"),
-      ]),
+      findPendingCandidates: jest
+        .fn()
+        .mockResolvedValue([
+          createCandidate("investment-1", "hash-1"),
+          createCandidate("investment-2", "hash-2"),
+          createCandidate("investment-3", "hash-3"),
+        ]),
     };
     const paymentVerifier = {
       verifyPayment: jest
         .fn()
         .mockResolvedValueOnce(createVerifiedResult("investment-1", "verified"))
         .mockRejectedValueOnce(
-          new ServiceError("transaction_not_found", "Transaction not found.", 404),
+          new ServiceError("transaction_not_found", "Transaction not found.", 404)
         )
-        .mockResolvedValueOnce(
-          createVerifiedResult("investment-3", "already_verified"),
-        ),
+        .mockResolvedValueOnce(createVerifiedResult("investment-3", "already_verified")),
     };
     const yieldControl = jest.fn(async () => undefined);
     const logger = new CaptureLogger();
@@ -145,7 +145,7 @@ describe("ReconcilePendingStellarStateWorker", () => {
 
     expect(repository.findPendingCandidates).toHaveBeenCalledWith(
       new Date("2026-01-01T00:09:00.000Z"),
-      3,
+      3
     );
     expect(paymentVerifier.verifyPayment).toHaveBeenCalledTimes(3);
     expect(yieldControl).toHaveBeenCalledTimes(3);
@@ -167,17 +167,19 @@ describe("ReconcilePendingStellarStateWorker", () => {
           level: "debug",
           message: "Completed Stellar reconciliation tick.",
         }),
-      ]),
+      ])
     );
   });
 
   it("logs cycle start and completion once per cycle with matching cycle_id", async () => {
     const now = new Date("2026-01-01T00:10:00.000Z");
     const repository = {
-      findPendingCandidates: jest.fn().mockResolvedValue([
-        createCandidate("investment-1", "hash-1"),
-        createCandidate("investment-2", "hash-2"),
-      ]),
+      findPendingCandidates: jest
+        .fn()
+        .mockResolvedValue([
+          createCandidate("investment-1", "hash-1"),
+          createCandidate("investment-2", "hash-2"),
+        ]),
     };
     const paymentVerifier = {
       verifyPayment: jest
@@ -204,10 +206,11 @@ describe("ReconcilePendingStellarStateWorker", () => {
     await worker.runTick();
 
     const startLogs = logger.entries.filter(
-      (entry) => entry.level === "info" && entry.message === "Started Stellar reconciliation tick.",
+      (entry) => entry.level === "info" && entry.message === "Started Stellar reconciliation tick."
     );
     const completionLogs = logger.entries.filter(
-      (entry) => entry.level === "debug" && entry.message === "Completed Stellar reconciliation tick.",
+      (entry) =>
+        entry.level === "debug" && entry.message === "Completed Stellar reconciliation tick."
     );
 
     expect(startLogs).toHaveLength(1);
@@ -231,11 +234,13 @@ describe("ReconcilePendingStellarStateWorker", () => {
   it("stops starting new reconciliations once the tick runtime budget is exhausted", async () => {
     let currentTimeMs = Date.parse("2026-01-01T00:00:00.000Z");
     const repository = {
-      findPendingCandidates: jest.fn().mockResolvedValue([
-        createCandidate("investment-1", "hash-1"),
-        createCandidate("investment-2", "hash-2"),
-        createCandidate("investment-3", "hash-3"),
-      ]),
+      findPendingCandidates: jest
+        .fn()
+        .mockResolvedValue([
+          createCandidate("investment-1", "hash-1"),
+          createCandidate("investment-2", "hash-2"),
+          createCandidate("investment-3", "hash-3"),
+        ]),
     };
     const paymentVerifier = {
       verifyPayment: jest.fn(async (input: { investmentId: string }) => {
@@ -359,7 +364,7 @@ describe("ReconcilePendingStellarStateWorker", () => {
     expect(repository.findPendingCandidates).toHaveBeenCalledTimes(1);
     expect(repository.findPendingCandidates).toHaveBeenCalledWith(
       new Date("2026-01-01T00:09:00.000Z"),
-      10,
+      10
     );
 
     // Pending investment was verified
@@ -372,7 +377,8 @@ describe("ReconcilePendingStellarStateWorker", () => {
     // it is never touched during reconciliation.
     // Log should show 1 checked, 0 skipped (only 1 pending candidate existed)
     const completionLog = logger.entries.find(
-      (entry: LogEntry) => entry.level === "debug" && entry.message === "Completed Stellar reconciliation tick.",
+      (entry: LogEntry) =>
+        entry.level === "debug" && entry.message === "Completed Stellar reconciliation tick."
     );
     expect(completionLog).toBeDefined();
     expect(completionLog?.metadata).toMatchObject({
@@ -386,11 +392,13 @@ describe("ReconcilePendingStellarStateWorker", () => {
     const logger = new CaptureLogger();
 
     const repository = {
-      findPendingCandidates: jest.fn().mockResolvedValue([
-        createCandidate("investment-1", "hash-1"),
-        createCandidate("investment-2", "hash-2"),
-        createCandidate("investment-3", "hash-3"),
-      ]),
+      findPendingCandidates: jest
+        .fn()
+        .mockResolvedValue([
+          createCandidate("investment-1", "hash-1"),
+          createCandidate("investment-2", "hash-2"),
+          createCandidate("investment-3", "hash-3"),
+        ]),
     };
 
     const paymentVerifier = {
@@ -424,7 +432,8 @@ describe("ReconcilePendingStellarStateWorker", () => {
     expect(result.failed).toBe(0);
 
     const completionLog = logger.entries.find(
-      (entry: LogEntry) => entry.level === "debug" && entry.message === "Completed Stellar reconciliation tick.",
+      (entry: LogEntry) =>
+        entry.level === "debug" && entry.message === "Completed Stellar reconciliation tick."
     );
     expect(completionLog).toBeDefined();
     expect(completionLog?.metadata).toMatchObject({

@@ -3,14 +3,14 @@ import { computeInvestorReturn } from "../../../src/lib/investor-return";
 function computeProRataDistribution(
   investorAmounts: bigint[],
   totalSettlementStroops: bigint,
-  platformFeeBps: number,
+  platformFeeBps: number
 ): { payouts: bigint[]; fee: bigint } {
   const totalFunded = investorAmounts.reduce((a, b) => a + b, 0n);
   const fee = (totalSettlementStroops * BigInt(platformFeeBps)) / 10_000n;
   const distributable = totalSettlementStroops - fee;
 
   const payouts = investorAmounts.map((amount) =>
-    computeInvestorReturn(amount, totalFunded, distributable),
+    computeInvestorReturn(amount, totalFunded, distributable)
   );
 
   return { payouts, fee };
@@ -23,11 +23,7 @@ describe("Investment pro-rata yield distribution", () => {
       const investorB = 4_000_000_000_000n;
       const settlement = 11_000_000_000_000n;
 
-      const { payouts, fee } = computeProRataDistribution(
-        [investorA, investorB],
-        settlement,
-        0,
-      );
+      const { payouts, fee } = computeProRataDistribution([investorA, investorB], settlement, 0);
 
       expect(fee).toBe(0n);
       expect(payouts[0] + payouts[1]).toBe(settlement);
@@ -40,11 +36,7 @@ describe("Investment pro-rata yield distribution", () => {
       const investorB = 4_000_000_000_000n;
       const settlement = 11_000_000_000_000n;
 
-      const { payouts, fee } = computeProRataDistribution(
-        [investorA, investorB],
-        settlement,
-        250,
-      );
+      const { payouts, fee } = computeProRataDistribution([investorA, investorB], settlement, 250);
 
       const expectedFee = (11_000_000_000_000n * 250n) / 10_000n;
       expect(fee).toBe(expectedFee);
@@ -57,7 +49,7 @@ describe("Investment pro-rata yield distribution", () => {
       const { payouts } = computeProRataDistribution(
         [5_000_000_000_000n, 5_000_000_000_000n],
         settlement,
-        0,
+        0
       );
 
       expect(payouts[0]).toBe(payouts[1]);
@@ -73,7 +65,7 @@ describe("Investment pro-rata yield distribution", () => {
       const { payouts, fee } = computeProRataDistribution(
         [amount, amount, amount],
         settlement,
-        100,
+        100
       );
 
       const expectedFee = (settlement * 100n) / 10_000n;
@@ -92,7 +84,7 @@ describe("Investment pro-rata yield distribution", () => {
       const { payouts, fee } = computeProRataDistribution(
         [investorA, investorB, investorC],
         settlement,
-        250,
+        250
       );
 
       const expectedFee = (settlement * 250n) / 10_000n;
@@ -161,11 +153,7 @@ describe("Investment pro-rata yield distribution", () => {
       const amount = 1_000_000_000_000n;
       const settlement = 10_000_000_000_003n;
 
-      const { payouts } = computeProRataDistribution(
-        [amount, amount, amount],
-        settlement,
-        0,
-      );
+      const { payouts } = computeProRataDistribution([amount, amount, amount], settlement, 0);
 
       const totalPayout = payouts.reduce((a, b) => a + b, 0n);
       expect(totalPayout).toBeLessThanOrEqual(settlement);
@@ -209,7 +197,11 @@ describe("Investment pro-rata yield distribution", () => {
     it("0% fee returns zero fee and full settlement as distributable", () => {
       const settlement = 10_000_000_000_000n;
 
-      const { fee } = computeProRataDistribution([5_000_000_000_000n, 5_000_000_000_000n], settlement, 0);
+      const { fee } = computeProRataDistribution(
+        [5_000_000_000_000n, 5_000_000_000_000n],
+        settlement,
+        0
+      );
 
       expect(fee).toBe(0n);
     });
@@ -217,7 +209,11 @@ describe("Investment pro-rata yield distribution", () => {
     it("2.5% fee (250 bps) is calculated correctly", () => {
       const settlement = 100_000_000_000_000n;
 
-      const { fee } = computeProRataDistribution([50_000_000_000_000n, 50_000_000_000_000n], settlement, 250);
+      const { fee } = computeProRataDistribution(
+        [50_000_000_000_000n, 50_000_000_000_000n],
+        settlement,
+        250
+      );
 
       expect(fee).toBe(2_500_000_000_000n);
     });
@@ -254,7 +250,7 @@ describe("Investment pro-rata yield distribution", () => {
       const result = computeInvestorReturn(
         1_000_000_000_000n,
         1_000_000_000_001n,
-        1_000_000_000_000n,
+        1_000_000_000_000n
       );
       expect(typeof result).toBe("bigint");
       expect(Number.isFinite(Number(result))).toBe(true);
