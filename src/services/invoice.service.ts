@@ -3,7 +3,7 @@ import Decimal from "decimal.js";
 import { Invoice } from "../models/Invoice.model";
 import { Investment } from "../models/Investment.model";
 import { User } from "../models/User.model";
-import { InvoiceStatus, KYCStatus } from "../types/enums";
+import { InvoiceStatus, KYCStatus, UserType } from "../types/enums";
 import { ServiceError } from "../utils/service-error";
 import { validateInvoiceForPublish } from "../lib/validate-invoice-for-publish";
 import {
@@ -985,6 +985,53 @@ export class InvoiceService {
       logger.error("Failed to process document upload", { error, invoiceId: input.invoiceId });
       throw new ServiceError("document_upload_failed", "Failed to process document upload", 500);
     }
+  }
+
+  /**
+   * Generates a signed URL for an invoice document, verifying authorization.
+   */
+  async getDocumentUrl(input: {
+    invoiceId: string;
+    requesterId?: string;
+    requesterType?: string;
+    isAdmin?: boolean;
+  }): Promise<string> {
+    const invoiceId = input.invoiceId?.trim();
+    if (!invoiceId) {
+       throw new ServiceError("invalid_input", "Invoice id is required", 400);
+    }
+
+    const invoice = await this.invoiceRepository.findOne({
+      where: { id: invoiceId },
+    });
+
+    if (!invoice) {
+      throw new ServiceError("invoice_not_found", "Invoice not found", 404);
+    }
+
+    if (!invoice.ipfsHash) {
+      throw new ServiceError(
+        "document_not_found",
+        "This invoice does not have an attached document",
+        404
+      );
+    }
+
+    if (!input.isAdmin) {
+      // Must be an investor, or the seller who owns the invoice
+      if (input.requesterType !== UserType.INVESTOR && input.requesterType !== UserType.BOTH) {
+         if (invoice.sellerId !== input.requesterId) {
+            throw new ServiceError(
+               "unauthorized_invoice_access",
+               "You do not have permission to view this document",
+               403
+            );
+         }
+      }
+    }
+
+    // This will generate the signed URL via Pinata API and log the attempt, throwing 503 on IPFS failure
+    return this.ipfsService.generateSignedUrl(invoice.ipfsHash);
   }
 
   /**

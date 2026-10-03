@@ -146,6 +146,66 @@ export class IPFSService {
       );
     }
   }
+
+  async generateSignedUrl(cid: string): Promise<string> {
+    const gatewayUrl = this.config.gatewayUrl;
+    // Pinata V3 uses /files/CID, but /ipfs/CID is often supported on gateways. 
+    // We'll use /ipfs/CID as default for backward compatibility with v2 uploads.
+    const targetUrl = `${gatewayUrl}/ipfs/${cid}`;
+    const expires = this.config.gatewayTokenTtlSeconds;
+
+    this.logger.info("Generating signed IPFS gateway URL", {
+      cid,
+      expires_in_seconds: expires,
+    });
+
+    try {
+      const response = await this.fetchImplementation(
+        `${this.config.apiUrl}/v3/files/private/download_link`,
+        {
+          method: "POST",
+          headers: withCorrelationHeaders({
+            Authorization: `Bearer ${this.config.jwt}`,
+            "Content-Type": "application/json",
+          }),
+          body: JSON.stringify({
+            url: targetUrl,
+            expires,
+            date: Math.floor(Date.now() / 1000),
+            method: "GET"
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Pinata API returned ${response.status}: ${errorText}`);
+      }
+
+      const result = await response.json() as { data?: string; url?: string };
+      // Pinata V3 usually returns the url directly or inside a data wrapper
+      const signedUrl = result.data || result.url;
+      
+      if (!signedUrl) {
+         throw new Error("Pinata API did not return a valid URL in response");
+      }
+
+      return signedUrl;
+    } catch (error) {
+      if (error instanceof ServiceError) throw error;
+      
+      this.logger.error("Failed to generate signed IPFS URL", {
+        cid,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      throw new ServiceError(
+        "ipfs_document_unavailable",
+        "The requested IPFS document is currently unavailable from the gateway. Please try again in a few moments.",
+        503
+      );
+    }
+  }
 }
 
 export function createIPFSService(config: AppConfig["ipfs"], logger: AppLogger): IPFSService {
