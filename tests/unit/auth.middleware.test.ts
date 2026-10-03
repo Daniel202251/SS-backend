@@ -85,43 +85,43 @@ describe("authenticateJWT", () => {
     }
   });
 
-  it("attaches the user for a valid token", () => {
+  it("attaches the user for a valid token", async () => {
     const token = jwt.sign({ stellarAddress: WALLET, userId: "user-1" }, SECRET, {
       subject: WALLET,
     });
     const req = createRequest(`Bearer ${token}`);
     const next = jest.fn();
 
-    authenticateJWT(req, {} as never, next);
+    await authenticateJWT(req, {} as never, next);
 
     expect(next).toHaveBeenCalledWith();
     expect(req.user).toMatchObject({ id: "user-1", stellarAddress: WALLET });
   });
 
-  it("accepts a lower-case bearer scheme", () => {
+  it("accepts a lower-case bearer scheme", async () => {
     const token = jwt.sign({ stellarAddress: WALLET }, SECRET, { subject: WALLET });
     const req = createRequest(`bearer ${token}`);
     const next = jest.fn();
 
-    authenticateJWT(req, {} as never, next);
+    await authenticateJWT(req, {} as never, next);
 
     expect(next).toHaveBeenCalledWith();
     expect(req.user?.id).toBe(WALLET);
   });
 
-  it("falls back to the subject when stellarAddress is absent", () => {
+  it("falls back to the subject when stellarAddress is absent", async () => {
     const token = jwt.sign({}, SECRET, { subject: WALLET });
     const req = createRequest(`Bearer ${token}`);
     const next = jest.fn();
 
-    authenticateJWT(req, {} as never, next);
+    await authenticateJWT(req, {} as never, next);
 
     expect(req.user?.stellarAddress).toBe(WALLET);
   });
 
-  it("returns 401 missing_token without a bearer header", () => {
+  it("returns 401 missing_token without a bearer header", async () => {
     const next = jest.fn();
-    authenticateJWT(createRequest(), {} as never, next);
+    await authenticateJWT(createRequest(), {} as never, next);
 
     const error = forwardedError(next);
     expect(error).toBeInstanceOf(HttpError);
@@ -132,9 +132,9 @@ describe("authenticateJWT", () => {
     });
   });
 
-  it("returns 401 unparseable_token for something that is not a JWT", () => {
+  it("returns 401 unparseable_token for something that is not a JWT", async () => {
     const next = jest.fn();
-    authenticateJWT(createRequest("Bearer not a jwt"), {} as never, next);
+    await authenticateJWT(createRequest("Bearer not a jwt"), {} as never, next);
 
     expect(forwardedError(next)).toMatchObject({
       statusCode: 401,
@@ -142,11 +142,11 @@ describe("authenticateJWT", () => {
     });
   });
 
-  it("returns 401 expired_token for an expired token", () => {
+  it("returns 401 expired_token for an expired token", async () => {
     const token = jwt.sign({}, SECRET, { subject: WALLET, expiresIn: -10 });
     const next = jest.fn();
 
-    authenticateJWT(createRequest(`Bearer ${token}`), {} as never, next);
+    await authenticateJWT(createRequest(`Bearer ${token}`), {} as never, next);
 
     expect(forwardedError(next)).toMatchObject({
       statusCode: 401,
@@ -154,11 +154,11 @@ describe("authenticateJWT", () => {
     });
   });
 
-  it("returns 401 invalid_signature for a token signed with another secret", () => {
+  it("returns 401 invalid_signature for a token signed with another secret", async () => {
     const token = jwt.sign({}, "other-secret", { subject: WALLET });
     const next = jest.fn();
 
-    authenticateJWT(createRequest(`Bearer ${token}`), {} as never, next);
+    await authenticateJWT(createRequest(`Bearer ${token}`), {} as never, next);
 
     expect(forwardedError(next)).toMatchObject({
       statusCode: 401,
@@ -166,20 +166,20 @@ describe("authenticateJWT", () => {
     });
   });
 
-  it("rejects tokens signed with an algorithm other than HS256", () => {
+  it("rejects tokens signed with an algorithm other than HS256", async () => {
     const token = jwt.sign({}, SECRET, { subject: WALLET, algorithm: "HS512" });
     const next = jest.fn();
 
-    authenticateJWT(createRequest(`Bearer ${token}`), {} as never, next);
+    await authenticateJWT(createRequest(`Bearer ${token}`), {} as never, next);
 
     expect(forwardedError(next)).toMatchObject({ statusCode: 401 });
   });
 
-  it("rejects unsigned tokens", () => {
+  it("rejects unsigned tokens", async () => {
     const token = jwt.sign({}, "", { subject: WALLET, algorithm: "none" });
     const next = jest.fn();
 
-    authenticateJWT(createRequest(`Bearer ${token}`), {} as never, next);
+    await authenticateJWT(createRequest(`Bearer ${token}`), {} as never, next);
 
     expect(forwardedError(next)).toMatchObject({ statusCode: 401 });
   });
@@ -188,12 +188,12 @@ describe("authenticateJWT", () => {
     ["no subject", {}],
     ["a blank subject", { sub: "   " }],
     ["a numeric subject", { sub: 42 }],
-  ])("returns 401 for a verified token with %s", (_label, claims) => {
+  ])("returns 401 for a verified token with %s", async (_label, claims) => {
     const token = jwt.sign(claims, SECRET);
     const req = createRequest(`Bearer ${token}`);
     const next = jest.fn();
 
-    authenticateJWT(req, {} as never, next);
+    await authenticateJWT(req, {} as never, next);
 
     expect(forwardedError(next)).toMatchObject({
       statusCode: 401,
@@ -202,12 +202,12 @@ describe("authenticateJWT", () => {
     expect(req.user).toBeUndefined();
   });
 
-  it("reports a missing JWT_SECRET as a server error, not a bad token", () => {
+  it("reports a missing JWT_SECRET as a server error, not a bad token", async () => {
     delete process.env.JWT_SECRET;
     const token = jwt.sign({}, SECRET, { subject: WALLET });
     const next = jest.fn();
 
-    authenticateJWT(createRequest(`Bearer ${token}`), {} as never, next);
+    await authenticateJWT(createRequest(`Bearer ${token}`), {} as never, next);
 
     const error = forwardedError(next);
     expect(error).toBeInstanceOf(AppError);
@@ -288,18 +288,19 @@ describe("createAuthMiddleware", () => {
     });
   });
 
-  it("keeps rejecting unexpected errors with 401 and logs them", async () => {
+  it("rejects unexpected errors with 500 and logs them", async () => {
     const logger = silentLogger();
     const next = jest.fn();
 
-    await createAuthMiddleware(authService(jest.fn().mockRejectedValue(new Error("boom"))), {
+    const boomError = new Error("boom");
+    await createAuthMiddleware(authService(jest.fn().mockRejectedValue(boomError)), {
       logger,
     })(createRequest("Bearer mock-token"), {} as never, next);
 
-    expect(forwardedError(next)).toMatchObject({ statusCode: 401 });
-    expect(logger.warn).toHaveBeenCalledWith(
-      "Unexpected error during authentication; rejecting token",
-      expect.objectContaining({ error: "boom" })
+    expect(forwardedError(next)).toMatchObject({ statusCode: 500, code: "AUTH_PROCESSING_FAILED" });
+    expect(logger.error).toHaveBeenCalledWith(
+      "Failed to process",
+      expect.objectContaining({ error: boomError })
     );
   });
 

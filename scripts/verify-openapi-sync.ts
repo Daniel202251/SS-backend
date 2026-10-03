@@ -106,9 +106,7 @@ function extractRoutesFromSpec(): Set<string> {
  * Converts Express format :param to {param}
  */
 function normalizePathForOpenAPI(expressPath: string): string {
-  return expressPath
-    .replace(/:([a-zA-Z_]\w*)/g, "{$1}")
-    .replace(/\?/g, ""); // Remove optional markers
+  return expressPath.replace(/:([a-zA-Z_]\w*)/g, "{$1}").replace(/\?/g, ""); // Remove optional markers
 }
 
 /**
@@ -183,7 +181,7 @@ function validateOpenAPIDrift(): boolean {
 
       // Check if this is registered in the app
       const isRegistered = Array.from(registeredRoutes).some(
-        (route) => specPath.startsWith(route) || route.includes(pathParts[2]),
+        (route) => specPath.startsWith(route) || route.includes(pathParts[2])
       );
 
       if (!isRegistered && !specPath.includes("{")) {
@@ -206,7 +204,10 @@ function validateOpenAPIDrift(): boolean {
       route === "/api/v1/settlements" ||
       route === "/api/v1/marketplace" ||
       route === "/api/v1/notifications" ||
-      route === "/notifications";
+      route === "/notifications" ||
+      // Alias mounts of documented routers.
+      route === "/keys" ||
+      route === "/swaps";
 
     if (isDocumented) {
       logSuccess(`Registered route has spec: ${route}`);
@@ -228,9 +229,7 @@ function validateOpenAPIDrift(): boolean {
   }
 
   logSection("OpenAPI Schema Drift Check Passed ✓");
-  console.log(
-    `${GREEN}All registered routes are documented in the OpenAPI specification.${NC}`,
-  );
+  console.log(`${GREEN}All registered routes are documented in the OpenAPI specification.${NC}`);
   console.log(`${GREEN}Specification is in sync with implementation.${NC}\n`);
   return true;
 }

@@ -40,6 +40,8 @@ export interface SorobanConfig {
   escrowContractId: string;
   tokenContractId?: string;
   paymentDistributorContractId?: string;
+  /** Issue #539 — gated-content contract backing subscription status reads. */
+  subscriptionContractId?: string;
   platformSecretKey?: string;
   platformFeeRecipient?: string;
   platformFeeBps: number;
@@ -65,6 +67,9 @@ export function getSorobanConfig(): SorobanConfig {
     process.env.SOROBAN_PAYMENT_DISTRIBUTOR_CONTRACT_ID ??
     process.env.PAYMENT_DISTRIBUTOR_CONTRACT_ID;
 
+  const subscriptionContractId =
+    process.env.SOROBAN_SUBSCRIPTION_CONTRACT_ID ?? process.env.SUBSCRIPTION_CONTRACT_ID;
+
   const platformSecretKey =
     process.env.STELLAR_PLATFORM_SECRET_KEY ?? process.env.PLATFORM_SECRET_KEY;
   const platformFeeRecipient = process.env.PLATFORM_FEE_RECIPIENT;
@@ -79,6 +84,7 @@ export function getSorobanConfig(): SorobanConfig {
     escrowContractId,
     tokenContractId,
     paymentDistributorContractId,
+    subscriptionContractId,
     platformSecretKey,
     platformFeeRecipient,
     platformFeeBps,
