@@ -61,6 +61,11 @@ export interface AppConfig {
     intervalMs: number;
     batchSize: number;
   };
+  sorobanIndexer: {
+    enabled: boolean;
+    intervalMs: number;
+    lagAlertThresholdLedgers: number;
+  };
   stellar: {
     network: SupportedStellarNetwork;
     networkPassphrase: string;
@@ -118,6 +123,8 @@ const DEFAULT_RECONCILIATION_INTERVAL_MS = 30 * 1000;
 const DEFAULT_RECONCILIATION_BATCH_SIZE = 25;
 const DEFAULT_RECONCILIATION_GRACE_PERIOD_MS = 60 * 1000;
 const DEFAULT_RECONCILIATION_MAX_RUNTIME_MS = 10 * 1000;
+const DEFAULT_SOROBAN_INDEXER_INTERVAL_MS = 10 * 1000;
+const DEFAULT_SOROBAN_INDEXER_LAG_THRESHOLD_LEDGERS = 1000;
 
 const DEFAULT_MATURITY_ENABLED = true;
 const DEFAULT_MATURITY_INTERVAL_MS = 5 * 60 * 1000;
@@ -393,6 +400,24 @@ export function getConfig(): AppConfig {
         process.env.INVOICE_MATURITY_JOB_BATCH_SIZE,
         DEFAULT_MATURITY_BATCH_SIZE,
         "INVOICE_MATURITY_JOB_BATCH_SIZE"
+      ),
+    },
+
+    sorobanIndexer: {
+      enabled: parseBoolean(
+        process.env.SOROBAN_EVENT_INDEXER_ENABLED,
+        false,
+        "SOROBAN_EVENT_INDEXER_ENABLED"
+      ),
+      intervalMs: parsePositiveInteger(
+        process.env.SOROBAN_EVENT_INDEXER_INTERVAL_MS,
+        DEFAULT_SOROBAN_INDEXER_INTERVAL_MS,
+        "SOROBAN_EVENT_INDEXER_INTERVAL_MS"
+      ),
+      lagAlertThresholdLedgers: parsePositiveInteger(
+        process.env.SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS,
+        DEFAULT_SOROBAN_INDEXER_LAG_THRESHOLD_LEDGERS,
+        "SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS"
       ),
     },
 

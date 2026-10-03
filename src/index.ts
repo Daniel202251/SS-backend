@@ -37,6 +37,7 @@ import { PaymentDistributorContractService } from "./services/stellar/payment-di
 import { createOnchainProjections } from "./services/onchain-projections.service";
 import { InvoiceEscrowContractService } from "./services/stellar/invoice-escrow-contract.service";
 import { getSorobanConfig } from "./config/stellar";
+import { EventIndexerService } from "./services/stellar/event-indexer.service";
 import { createInvoiceMaturityWorker, SettlementEventBus } from "./workers/invoice-maturity.worker";
 import { createRatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import { createDividendCycleService } from "./services/dividend-cycle.service";
@@ -91,6 +92,7 @@ export async function bootstrap(): Promise<{
     createInvestmentNotifier(notificationService, logger)
   );
   const sorobanConfig = getSorobanConfig();
+
   const distributor =
     sorobanConfig.paymentDistributorContractId && sorobanConfig.platformSecretKey
       ? new PaymentDistributorContractService(
@@ -236,7 +238,26 @@ export async function bootstrap(): Promise<{
   // ---- Start settlement worker cron (hourly) ----
   settlementWorker.start("0 * * * *");
 
+  const eventIndexer =
+    config.sorobanIndexer.enabled && config.sorobanEscrow.contractId && config.sorobanEscrow.rpcUrl
+      ? new EventIndexerService({
+          contractIds: [config.sorobanEscrow.contractId],
+          rpcUrl: config.sorobanEscrow.rpcUrl,
+          dataSource,
+          logger,
+          lagAlertThresholdLedgers: config.sorobanIndexer.lagAlertThresholdLedgers,
+          eventBus: projections.eventBus,
+        })
+      : undefined;
+
+  if (eventIndexer) {
+    eventIndexer.start(config.sorobanIndexer.intervalMs);
+  }
+
   server.on("close", () => {
+    if (eventIndexer) {
+      eventIndexer.stop();
+    }
     void maturityWorker.stop();
     snapshotScheduler.stop();
     settlementWorker.stop();
