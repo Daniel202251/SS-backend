@@ -20,6 +20,7 @@ export interface EventIndexerServiceDependencies {
   checkpointRepository?: Repository<SorobanIndexerCheckpoint>;
   invoiceRepository?: Repository<Invoice>;
   investmentRepository?: Repository<Investment>;
+  lagAlertThresholdLedgers?: number;
   /**
    * Optional fan-out for read-model projections derived from contract events
    * (ACL, curve migrations, atomic swaps, key config). Omitting it preserves
@@ -43,6 +44,7 @@ export class EventIndexerService {
   private readonly checkpointRepository?: Repository<SorobanIndexerCheckpoint>;
   private readonly invoiceRepository?: Repository<Invoice>;
   private readonly investmentRepository?: Repository<Investment>;
+  private readonly lagAlertThresholdLedgers: number;
   private readonly eventBus?: ContractEventBus;
   private intervalHandle: NodeJS.Timeout | null = null;
   private lastIndexedLedger = 0;
@@ -58,6 +60,7 @@ export class EventIndexerService {
     this.contractIds = dependencies.contractIds;
     this.logger = dependencies.logger ?? globalLogger;
     this.dataSource = dependencies.dataSource;
+    this.lagAlertThresholdLedgers = dependencies.lagAlertThresholdLedgers ?? 100;
     this.eventBus = dependencies.eventBus;
 
     if (dependencies.server) {

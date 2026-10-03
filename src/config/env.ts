@@ -61,6 +61,11 @@ export interface AppConfig {
     intervalMs: number;
     batchSize: number;
   };
+  sorobanIndexer: {
+    enabled: boolean;
+    intervalMs: number;
+    lagAlertThresholdLedgers: number;
+  };
   stellar: {
     network: SupportedStellarNetwork;
     networkPassphrase: string;
@@ -391,6 +396,24 @@ export function getConfig(): AppConfig {
         process.env.INVOICE_MATURITY_JOB_BATCH_SIZE,
         DEFAULT_MATURITY_BATCH_SIZE,
         "INVOICE_MATURITY_JOB_BATCH_SIZE"
+      ),
+    },
+
+    sorobanIndexer: {
+      enabled: parseBoolean(
+        process.env.SOROBAN_EVENT_INDEXER_ENABLED,
+        false,
+        "SOROBAN_EVENT_INDEXER_ENABLED"
+      ),
+      intervalMs: parsePositiveInteger(
+        process.env.SOROBAN_EVENT_INDEXER_INTERVAL_MS,
+        DEFAULT_SOROBAN_INDEXER_INTERVAL_MS,
+        "SOROBAN_EVENT_INDEXER_INTERVAL_MS"
+      ),
+      lagAlertThresholdLedgers: parsePositiveInteger(
+        process.env.SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS,
+        DEFAULT_SOROBAN_INDEXER_LAG_THRESHOLD_LEDGERS,
+        "SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS"
       ),
     },
 
