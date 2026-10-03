@@ -290,9 +290,11 @@ export function createRateLimitMiddleware(
       onStoreError(error);
     };
 
-    Promise.resolve()
-      .then(() => limiter(req, res, done))
-      .catch(done);
+    try {
+      limiter(req, res, done);
+    } catch (error) {
+      done(error);
+    }
   };
 }
 
