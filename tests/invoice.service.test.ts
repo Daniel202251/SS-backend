@@ -2,6 +2,7 @@ import { InvoiceService } from "../src/services/invoice.service";
 import { ServiceError } from "../src/utils/service-error";
 import { Invoice } from "../src/models/Invoice.model";
 import { InvoiceStatus } from "../src/types/enums";
+import { logger } from "../src/observability/logger";
 
 describe("InvoiceService", () => {
   let mockInvoiceRepository: any;
@@ -241,6 +242,23 @@ describe("InvoiceService", () => {
         })
       );
     });
+
+    it.each([
+      { skip: -5, take: 0, expectedSkip: 0, expectedTake: 1 },
+      { skip: 20000, take: 500, expectedSkip: 10000, expectedTake: 100 },
+    ])(
+      "should clamp pagination bounds for skip=$skip and take=$take",
+      async ({ skip, take, expectedSkip, expectedTake }) => {
+        mockInvoiceRepository.find.mockResolvedValue([]);
+        mockInvoiceRepository.count.mockResolvedValue(0);
+
+        await invoiceService.getInvoicesBySellerId({ sellerId: "seller-456", skip, take });
+
+        expect(mockInvoiceRepository.find).toHaveBeenCalledWith(
+          expect.objectContaining({ skip: expectedSkip, take: expectedTake }),
+        );
+      },
+    );
   });
 
   // ============ UPDATE INVOICE TESTS ============
@@ -601,6 +619,22 @@ describe("InvoiceService", () => {
 
   // ============ REPOSITORY ERROR HANDLING ============
   describe("repository error handling", () => {
+    it("should return a service error and log when invoice listing fails", async () => {
+      const errorSpy = jest.spyOn(logger, "error");
+      mockInvoiceRepository.find.mockRejectedValue(new Error("Query timeout"));
+      mockInvoiceRepository.count.mockResolvedValue(0);
+
+      await expect(
+        invoiceService.getInvoicesBySellerId({ sellerId: "seller-456" }),
+      ).rejects.toMatchObject({ code: "invoice_list_failed", statusCode: 500 });
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        "Failed to fetch invoices by seller",
+        expect.objectContaining({ sellerId: "seller-456" }),
+      );
+      errorSpy.mockRestore();
+    });
+
     it("should propagate database errors on createInvoice", async () => {
       mockInvoiceRepository.findOneBy.mockResolvedValue(null);
       mockInvoiceRepository.create.mockReturnValue(mockInvoice);
