@@ -112,31 +112,6 @@ describe("InvoiceService", () => {
       expect(result.netAmount).toBe("900.0000");
     });
 
-    it("should calculate net amount precisely for values where floating-point arithmetic rounds wrong", async () => {
-      mockInvoiceRepository.findOneBy.mockResolvedValue(null);
-      mockInvoiceRepository.create.mockImplementation((data: Partial<Invoice>) => ({
-        ...mockInvoice,
-        ...data,
-      }));
-      mockInvoiceRepository.save.mockImplementation(async (invoice: Invoice) => invoice);
-
-      // 29.99 - 29.99 * 0.5 / 100: naive `parseFloat` arithmetic here used to
-      // produce "29.8400" instead of the correct "29.8401" because 29.99 and
-      // 0.5 aren't exactly representable as IEEE-754 doubles.
-      const result = await invoiceService.createInvoice({
-        sellerId: "seller-456",
-        invoiceNumber: "INV-002",
-        customerName: "Test Customer",
-        amount: "29.99",
-        discountRate: "0.5",
-        dueDate: new Date("2024-12-31"),
-      });
-
-      expect(mockInvoiceRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ netAmount: "29.8401" })
-      );
-      expect(result.netAmount).toBe("29.8401");
-    });
     // netAmount = amount - amount * discountRate / 100, rounded to 4 dp.
     // The 29.99 @ 0.5% row guards a real regression: naive `parseFloat`
     // arithmetic produced "29.8400" instead of "29.8401" because 29.99 and
@@ -164,14 +139,10 @@ describe("InvoiceService", () => {
 
     it("should reject duplicate invoice number", async () => {
       mockInvoiceRepository.findOneBy.mockResolvedValue(mockInvoice);
+      const creation = invoiceService.createInvoice(buildCreateInput());
 
-      await expect(
-        invoiceService.createInvoice(buildCreateInput()),
-      ).rejects.toThrow(ServiceError);
-
-      await expect(
-        invoiceService.createInvoice(buildCreateInput()),
-      ).rejects.toMatchObject({
+      await expect(creation).rejects.toBeInstanceOf(ServiceError);
+      await expect(creation).rejects.toMatchObject({
         code: "invoice_number_exists",
         statusCode: 409,
       });
@@ -592,10 +563,10 @@ describe("InvoiceService", () => {
 
     it("should throw error when invoice not found", async () => {
       mockInvoiceRepository.findOne.mockResolvedValue(null);
+      const upload = invoiceService.uploadDocument(uploadInput);
 
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toThrow(ServiceError);
-
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toMatchObject({
+      await expect(upload).rejects.toBeInstanceOf(ServiceError);
+      await expect(upload).rejects.toMatchObject({
         code: "invoice_not_found",
         statusCode: 404,
       });
@@ -604,10 +575,10 @@ describe("InvoiceService", () => {
     it("should throw error when user is not the seller", async () => {
       const wrongSellerInvoice = { ...mockInvoice, sellerId: "different-seller" };
       mockInvoiceRepository.findOne.mockResolvedValue(wrongSellerInvoice);
+      const upload = invoiceService.uploadDocument(uploadInput);
 
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toThrow(ServiceError);
-
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toMatchObject({
+      await expect(upload).rejects.toBeInstanceOf(ServiceError);
+      await expect(upload).rejects.toMatchObject({
         code: "unauthorized_invoice_access",
         statusCode: 403,
       });
@@ -618,10 +589,10 @@ describe("InvoiceService", () => {
       mockIPFSService.uploadFile.mockRejectedValue(
         new ServiceError("file_too_large", "File too large", 400)
       );
+      const upload = invoiceService.uploadDocument(uploadInput);
 
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toThrow(ServiceError);
-
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toMatchObject({
+      await expect(upload).rejects.toBeInstanceOf(ServiceError);
+      await expect(upload).rejects.toMatchObject({
         code: "file_too_large",
         statusCode: 400,
       });
