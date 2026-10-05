@@ -375,6 +375,13 @@ export function createInvoiceRouter({
     controller.uploadDocument
   );
 
+  // GET /api/v1/invoices/:id/document - Get document URL
+  router.get(
+    "/:id/document",
+    authenticateJWT,
+    controller.getDocument
+  );
+
   // POST /api/v1/invoices/:id/invest - Buy a fractional share of an invoice.
   // Same gating as POST /api/v1/investments: full user lookup (for KYC),
   // contract pause guard and the per-wallet investment rate limit.

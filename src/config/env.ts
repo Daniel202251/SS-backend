@@ -61,6 +61,11 @@ export interface AppConfig {
     intervalMs: number;
     batchSize: number;
   };
+  sorobanIndexer: {
+    enabled: boolean;
+    intervalMs: number;
+    lagAlertThresholdLedgers: number;
+  };
   stellar: {
     network: SupportedStellarNetwork;
     networkPassphrase: string;
@@ -75,6 +80,8 @@ export interface AppConfig {
   ipfs: {
     apiUrl: string;
     jwt: string;
+    gatewayUrl: string;
+    gatewayTokenTtlSeconds: number;
     maxFileSizeMB: number;
     allowedMimeTypes: string[];
     uploadRateLimit: {
@@ -116,6 +123,8 @@ const DEFAULT_RECONCILIATION_INTERVAL_MS = 30 * 1000;
 const DEFAULT_RECONCILIATION_BATCH_SIZE = 25;
 const DEFAULT_RECONCILIATION_GRACE_PERIOD_MS = 60 * 1000;
 const DEFAULT_RECONCILIATION_MAX_RUNTIME_MS = 10 * 1000;
+const DEFAULT_SOROBAN_INDEXER_INTERVAL_MS = 10 * 1000;
+const DEFAULT_SOROBAN_INDEXER_LAG_THRESHOLD_LEDGERS = 1000;
 
 const DEFAULT_MATURITY_ENABLED = true;
 const DEFAULT_MATURITY_INTERVAL_MS = 5 * 60 * 1000;
@@ -124,6 +133,8 @@ const DEFAULT_MATURITY_BATCH_SIZE = 50;
 const DEFAULT_BODY_SIZE_LIMIT = "1mb";
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15 * 1000;
 
+const DEFAULT_IPFS_GATEWAY_URL = "https://gateway.pinata.cloud";
+const DEFAULT_IPFS_GATEWAY_TOKEN_TTL_SECONDS = 3600;
 const DEFAULT_IPFS_MAX_FILE_SIZE_MB = 10;
 const DEFAULT_IPFS_ALLOWED_MIME_TYPES = [
   "application/pdf",
@@ -392,6 +403,24 @@ export function getConfig(): AppConfig {
       ),
     },
 
+    sorobanIndexer: {
+      enabled: parseBoolean(
+        process.env.SOROBAN_EVENT_INDEXER_ENABLED,
+        false,
+        "SOROBAN_EVENT_INDEXER_ENABLED"
+      ),
+      intervalMs: parsePositiveInteger(
+        process.env.SOROBAN_EVENT_INDEXER_INTERVAL_MS,
+        DEFAULT_SOROBAN_INDEXER_INTERVAL_MS,
+        "SOROBAN_EVENT_INDEXER_INTERVAL_MS"
+      ),
+      lagAlertThresholdLedgers: parsePositiveInteger(
+        process.env.SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS,
+        DEFAULT_SOROBAN_INDEXER_LAG_THRESHOLD_LEDGERS,
+        "SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS"
+      ),
+    },
+
     stellar: resolveNetwork(process.env.STELLAR_NETWORK),
 
     sorobanEscrow: {
@@ -404,6 +433,12 @@ export function getConfig(): AppConfig {
     ipfs: {
       apiUrl: requireString(process.env.IPFS_API_URL, "IPFS_API_URL"),
       jwt: requireString(process.env.IPFS_JWT, "IPFS_JWT"),
+      gatewayUrl: process.env.IPFS_GATEWAY_URL || DEFAULT_IPFS_GATEWAY_URL,
+      gatewayTokenTtlSeconds: parsePositiveInteger(
+        process.env.IPFS_GATEWAY_TOKEN_TTL_SECONDS,
+        DEFAULT_IPFS_GATEWAY_TOKEN_TTL_SECONDS,
+        "IPFS_GATEWAY_TOKEN_TTL_SECONDS"
+      ),
       maxFileSizeMB: parsePositiveInteger(
         process.env.IPFS_MAX_FILE_SIZE_MB,
         DEFAULT_IPFS_MAX_FILE_SIZE_MB,

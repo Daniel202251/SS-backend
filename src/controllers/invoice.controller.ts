@@ -590,6 +590,34 @@ export function createInvoiceController(
       }
     },
 
+    async getDocument(req: Request & { params: { id: string } }, res: Response, next: NextFunction): Promise<void> {
+      try {
+        const authReq = req as AuthenticatedRequest;
+        
+        const { id: invoiceId } = req.params;
+        
+        const result = await invoiceService.getDocumentUrl({
+           invoiceId,
+           requesterId: authReq.user?.id,
+           requesterType: authReq.user?.userType,
+           isAdmin: !authReq.user // if there's no user but it passed routing, it's admin route
+        });
+
+        res.status(200).json({
+          success: true,
+          data: {
+             url: result
+          }
+        });
+      } catch (error) {
+        if (error instanceof ServiceError) {
+           next(new HttpError(error.statusCode, error.message));
+           return;
+        }
+        next(error);
+      }
+    },
+
     async getInvoiceTokenHolders(
       req: Request & { params: { id: string } },
       res: Response,

@@ -2,7 +2,7 @@ import { IsNull } from "typeorm";
 import { InvoiceService } from "../src/services/invoice.service";
 import { ServiceError } from "../src/utils/service-error";
 import { Invoice } from "../src/models/Invoice.model";
-import { InvoiceStatus, KYCStatus } from "../src/types/enums";
+import { InvoiceStatus } from "../src/types/enums";
 import { logger } from "../src/observability/logger";
 
 describe("InvoiceService", () => {
@@ -120,6 +120,32 @@ describe("InvoiceService", () => {
       });
     });
 
+    it("should calculate net amount correctly", async () => {
+      mockInvoiceRepository.findOneBy.mockResolvedValue(null);
+      mockInvoiceRepository.create.mockReturnValue({
+        ...mockInvoice,
+        amount: "1000.00",
+        discountRate: "10.00",
+      });
+      mockInvoiceRepository.save.mockResolvedValue({
+        ...mockInvoice,
+        amount: "1000.00",
+        discountRate: "10.00",
+        netAmount: "900.0000",
+      });
+
+      const result = await invoiceService.createInvoice({
+        sellerId: "seller-456",
+        invoiceNumber: "INV-001",
+        customerName: "Test Customer",
+        amount: "1000.00",
+        discountRate: "10.00",
+        dueDate: new Date("2024-12-31"),
+      });
+
+      expect(result.netAmount).toBe("900.0000");
+    });
+
     // netAmount = amount - amount * discountRate / 100, rounded to 4 dp.
     // The 29.99 @ 0.5% row guards a real regression: naive `parseFloat`
     // arithmetic produced "29.8400" instead of "29.8401" because 29.99 and
@@ -150,10 +176,13 @@ describe("InvoiceService", () => {
 
     it("should reject duplicate invoice number", async () => {
       mockInvoiceRepository.findOneBy.mockResolvedValue(mockInvoice);
+      const creation = invoiceService.createInvoice(buildCreateInput());
 
       await expect(invoiceService.createInvoice(buildCreateInput())).rejects.toThrow(ServiceError);
 
       await expect(invoiceService.createInvoice(buildCreateInput())).rejects.toMatchObject({
+      await expect(creation).rejects.toBeInstanceOf(ServiceError);
+      await expect(creation).rejects.toMatchObject({
         code: "invoice_number_exists",
         statusCode: 409,
       });
@@ -469,6 +498,22 @@ describe("InvoiceService", () => {
         invoiceService.getInvoicesBySellerId({ sellerId: "seller-456" })
       ).rejects.toMatchObject({ code: "invoice_list_failed", statusCode: 500 });
     });
+    it.each([
+      { skip: -5, take: 0, expectedSkip: 0, expectedTake: 1 },
+      { skip: 20000, take: 500, expectedSkip: 10000, expectedTake: 100 },
+    ])(
+      "should clamp pagination bounds for skip=$skip and take=$take",
+      async ({ skip, take, expectedSkip, expectedTake }) => {
+        mockInvoiceRepository.find.mockResolvedValue([]);
+        mockInvoiceRepository.count.mockResolvedValue(0);
+
+        await invoiceService.getInvoicesBySellerId({ sellerId: "seller-456", skip, take });
+
+        expect(mockInvoiceRepository.find).toHaveBeenCalledWith(
+          expect.objectContaining({ skip: expectedSkip, take: expectedTake }),
+        );
+      },
+    );
   });
 
   // ============ UPDATE INVOICE TESTS ============
@@ -948,10 +993,10 @@ describe("InvoiceService", () => {
 
     it("should throw error when invoice not found", async () => {
       mockInvoiceRepository.findOne.mockResolvedValue(null);
+      const upload = invoiceService.uploadDocument(uploadInput);
 
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toThrow(ServiceError);
-
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toMatchObject({
+      await expect(upload).rejects.toBeInstanceOf(ServiceError);
+      await expect(upload).rejects.toMatchObject({
         code: "invoice_not_found",
         statusCode: 404,
       });
@@ -960,10 +1005,10 @@ describe("InvoiceService", () => {
     it("should throw error when user is not the seller", async () => {
       const wrongSellerInvoice = { ...mockInvoice, sellerId: "different-seller" };
       mockInvoiceRepository.findOne.mockResolvedValue(wrongSellerInvoice);
+      const upload = invoiceService.uploadDocument(uploadInput);
 
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toThrow(ServiceError);
-
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toMatchObject({
+      await expect(upload).rejects.toBeInstanceOf(ServiceError);
+      await expect(upload).rejects.toMatchObject({
         code: "unauthorized_invoice_access",
         statusCode: 403,
       });
@@ -1038,10 +1083,10 @@ describe("InvoiceService", () => {
       mockIPFSService.uploadFile.mockRejectedValue(
         new ServiceError("file_too_large", "File too large", 400)
       );
+      const upload = invoiceService.uploadDocument(uploadInput);
 
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toThrow(ServiceError);
-
-      await expect(invoiceService.uploadDocument(uploadInput)).rejects.toMatchObject({
+      await expect(upload).rejects.toBeInstanceOf(ServiceError);
+      await expect(upload).rejects.toMatchObject({
         code: "file_too_large",
         statusCode: 400,
       });
@@ -1095,6 +1140,28 @@ describe("InvoiceService", () => {
         );
         expect(stateMachine.dispatch).toHaveBeenCalledTimes(1);
       });
+  // ============ REPOSITORY ERROR HANDLING ============
+  describe("repository error handling", () => {
+    it("should return a service error and log when invoice listing fails", async () => {
+      const errorSpy = jest.spyOn(logger, "error");
+      mockInvoiceRepository.find.mockRejectedValue(new Error("Query timeout"));
+      mockInvoiceRepository.count.mockResolvedValue(0);
+
+      await expect(
+        invoiceService.getInvoicesBySellerId({ sellerId: "seller-456" }),
+      ).rejects.toMatchObject({ code: "invoice_list_failed", statusCode: 500 });
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        "Failed to fetch invoices by seller",
+        expect.objectContaining({ sellerId: "seller-456" }),
+      );
+      errorSpy.mockRestore();
+    });
+
+    it("should propagate database errors on createInvoice", async () => {
+      mockInvoiceRepository.findOneBy.mockResolvedValue(null);
+      mockInvoiceRepository.create.mockReturnValue(mockInvoice);
+      mockInvoiceRepository.save.mockRejectedValue(new Error("Connection refused"));
 
       it("should record a null actor when the admin is unknown", async () => {
         mockInvoiceRepository.findOne.mockResolvedValue(mockInvoice);

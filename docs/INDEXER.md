@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Soroban Event Indexer is a critical background service that keeps the off-chain database synchronized with on-chain Soroban contract states. It polls the Stellar RPC node for emitted events, decodes the `ScVal` data, and updates the local database accordingly.
+The Soroban Event Indexer is a background service that keeps the off-chain database synchronized with on-chain Soroban contract states. It polls the Soroban RPC `getEvents` endpoint, decodes the `ScVal` data, and updates the local database accordingly. Horizon does not expose Soroban contract events.
 
 ### Architecture Diagram
 
@@ -75,9 +75,17 @@ cannot create duplicate rows.
 
 To ensure no events are missed and to prevent processing duplicate events, the indexer relies on a checkpointing mechanism:
 
-1. **Polling**: The indexer queries the RPC `getEvents` endpoint using a ledger range (e.g., `startLedger` to `endLedger`).
-2. **Checkpointing**: After successfully processing all events up to `endLedger`, the indexer saves `endLedger` to the database as the `last_synced_ledger`.
-3. **Resume**: On restart, the indexer queries the database for `last_synced_ledger` and resumes polling from `last_synced_ledger + 1`.
+1. **Polling**: The indexer queries the Soroban RPC `getEvents` endpoint with configured contract IDs and follows its cursor through full pages.
+2. **Event log**: Each event is retained in `soroban_event_logs`, keyed by contract and RPC event ID. Successfully processed entries are marked processed; failed entries remain retryable.
+3. **Checkpointing**: After every returned page has been handled, the indexer stores the latest observed ledger in `soroban_indexer_checkpoints`, including when a ledger contains no matching events.
+4. **Resume**: On restart, polling resumes at `last_synced_ledger + 1`. Duplicate event delivery is skipped using the unique contract/event key.
+
+## Runtime Configuration
+
+- `SOROBAN_EVENT_INDEXER_ENABLED`: enable the background poller (default `false`).
+- `SOROBAN_EVENT_INDEXER_INTERVAL_MS`: poll interval in milliseconds (default `10000`).
+- `SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS`: log a warning at or above this ledger lag (default `1000`).
+- `SOROBAN_ESCROW_CONTRACT_ID` and `SOROBAN_RPC_URL`: contract and Soroban RPC endpoint; both are required to start the poller.
 
 ## Failure Recovery Procedures
 

@@ -1,12 +1,16 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 
 @Entity("soroban_event_logs")
+@Index("uq_soroban_event_logs_contract_event", ["contractId", "eventId"], { unique: true })
 export class SorobanEventLog {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
   @Column({ name: "contract_id", type: "varchar", length: 56 })
   contractId!: string;
+
+  @Column({ name: "event_id", type: "varchar", length: 255, nullable: true })
+  eventId!: string | null;
 
   @Column({ name: "ledger_sequence", type: "bigint" })
   ledgerSequence!: string;
