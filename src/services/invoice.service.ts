@@ -16,7 +16,6 @@ import {
 } from "../lib/invoice-state-machine";
 import { InvoiceStatusHistory } from "../models/InvoiceStatusHistory.model";
 import { logger } from "../observability/logger";
-import { AppError } from "../utils/http-error";
 import type { IPFSService, IPFSUploadResult } from "./ipfs.service";
 import { decodeInvoiceCursor, encodeInvoiceCursor } from "../utils/invoice-cursor.utils";
 
@@ -586,8 +585,8 @@ export class InvoiceService {
       return this.toDTO(updated);
     } catch (error) {
       if (error instanceof ServiceError) throw error;
-      logger.error('Failed to process', { error });
-      throw new AppError(500, 'Processing failed', 'PROCESSING_FAILED', { error });
+      logger.error("Failed to update invoice", { error, invoiceId: input.invoiceId });
+      throw new ServiceError("invoice_update_failed", "Failed to update invoice", 500);
     }
   }
 
@@ -626,8 +625,8 @@ export class InvoiceService {
       await this.invoiceRepository.save(invoice);
     } catch (error) {
       if (error instanceof ServiceError) throw error;
-      logger.error('Failed to process', { error });
-      throw new AppError(500, 'Processing failed', 'PROCESSING_FAILED', { error });
+      logger.error("Failed to delete invoice", { error, invoiceId });
+      throw new ServiceError("invoice_delete_failed", "Failed to delete invoice", 500);
     }
   }
 
@@ -674,8 +673,8 @@ export class InvoiceService {
       return this.toDTO(updated);
     } catch (error) {
       if (error instanceof ServiceError) throw error;
-      logger.error('Failed to process', { error });
-      throw new AppError(500, 'Processing failed', 'PROCESSING_FAILED', { error });
+      logger.error("Failed to publish invoice", { error, invoiceId: input.invoiceId });
+      throw new ServiceError("invoice_publish_failed", "Failed to publish invoice", 500);
     }
   }
 
