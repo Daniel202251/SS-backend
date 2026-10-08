@@ -33,6 +33,7 @@ import { createContractGuardService } from "./services/stellar/contract-guard.se
 import { createKeysRouter } from "./routes/keys.routes";
 import { createDividendsRouter } from "./routes/dividends.routes";
 import { createSecondaryMarketRouter } from "./routes/secondary-market.routes";
+import { createXlmUsdRateRouter } from "./routes/xlm-usd-rate.routes";
 import { createWatchlistRouter } from "./routes/watchlist.routes";
 import type { RatingsLeaderboardService } from "./services/ratings-leaderboard.service";
 import type { DividendCycleService } from "./services/dividend-cycle.service";
@@ -66,6 +67,7 @@ import type { PortfolioService } from "./services/portfolio.service";
 import type { SecondaryMarketService } from "./services/secondary-market.service";
 import type { WatchlistService } from "./services/watchlist.service";
 import type { SettlementWorker } from "./workers/settlement.worker";
+import type { XlmUsdRateService } from "./services/xlm-usd-rate.service";
 
 import dataSource from "./config/database";
 import { getRedisClient } from "./config/redis";
@@ -202,6 +204,7 @@ export interface AppDependencies {
   portfolioService?: PortfolioService;
   adminMetricsService?: AdminMetricsService;
   invoiceEscrowContractService?: import("./services/stellar/invoice-escrow-contract.service").InvoiceEscrowContractService;
+  xlmUsdRateService?: XlmUsdRateService;
   logger?: AppLogger;
   metricsEnabled?: boolean;
   metricsRegistry?: MetricsRegistry;
@@ -252,6 +255,7 @@ export function createApp({
   extensionService,
   adminMetricsService,
   invoiceEscrowContractService,
+  xlmUsdRateService,
   logger: appLogger = logger,
   metricsEnabled = true,
   metricsRegistry = new MetricsRegistry(),

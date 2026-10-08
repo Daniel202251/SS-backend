@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import { KycService } from "../services/kyc.service";
 import { AuthenticatedRequest } from "../types/auth";
-import { KYCStatus } from "../types/enums";
 
 export function createKycController(service: KycService) {
   return {

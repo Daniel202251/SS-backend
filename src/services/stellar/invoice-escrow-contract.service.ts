@@ -345,6 +345,16 @@ export class InvoiceEscrowContractService {
       throw new Error("investorAddress is required.");
     }
 
+    const amountBigInt = this.parseStroopAmount(amountStroops, "amountStroops");
+
+    return this.contract.call(
+      "fund_escrow",
+      nativeToScVal(safeInvoiceId, { type: "symbol" }),
+      new Address(safeInvestor).toScVal(),
+      nativeToScVal(amountBigInt, { type: "i128" })
+    );
+  }
+
   /**
    * Build the Soroban contract invocation operation for refunding an investor.
    */
@@ -355,8 +365,7 @@ export class InvoiceEscrowContractService {
     return this.contract.call(
       "refund_investment",
       nativeToScVal(safeInvoiceId, { type: "symbol" }),
-      new Address(safeInvestor).toScVal(),
-      nativeToScVal(amountBigInt, { type: "i128" })
+      new Address(safeInvestor).toScVal()
     );
   }
 
@@ -802,4 +811,54 @@ public async createEscrowOnChain(input: CreateEscrowInput): Promise<CreateEscrow
 
     return { transactionHash: submitted.txHash, ledger };
   }
+
+  /**
+   * Submits a refund call for an investor whose committed capital is being
+   * reclaimed after an expired unfunded invoice.
+   */
+  public async refundInvestment(
+    invoiceId: string,
+    investorAddress: string
+  ): Promise<{ txHash: string; status: "SUCCESS" | "FAILED"; ledger: number | null }> {
+    if (!this.rpcServer || !this.networkPassphrase || !this.platformSecretKey) {
+      throw new ServiceError(
+        "soroban_refund_unavailable",
+        "Soroban refund submission is not configured for this environment.",
+        503
+      );
+    }
+
+    const operation = this.buildRefundInvestmentTx(invoiceId, investorAddress);
+    const signer = Keypair.fromSecret(this.platformSecretKey);
+    const sourceAccount = await this.rpcServer.getAccount(signer.publicKey());
+    const transaction = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(operation)
+      .setTimeout(30)
+      .build();
+
+    const prepared = await this.rpcServer.prepareTransaction(transaction);
+    prepared.sign(signer);
+
+    const simulation = await this.simulateTransaction(prepared);
+    if (simulation.error) {
+      throw new ServiceError(
+        "soroban_refund_simulation_failed",
+        `Refund simulation failed: ${simulation.error}`,
+        400,
+        { invoiceId, investorAddress, error: simulation.error }
+      );
+    }
+
+    const submitted = await this.submitTransaction(prepared);
+    const confirmation = await this.waitForTransactionConfirmation(submitted.txHash);
+    return {
+      txHash: submitted.txHash,
+      status: confirmation.status === "SUCCESS" ? "SUCCESS" : "FAILED",
+      ledger: confirmation.ledger,
+    };
+  }
 }
+

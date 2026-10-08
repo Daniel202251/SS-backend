@@ -88,7 +88,7 @@ export class User {
   investments!: import("./Investment.model").Investment[];
 
   @OneToMany("SecondaryMarketListing", "seller")
-  secondaryMarketListings!: import("./SecondaryMarketListing.model").SecondaryMarketListing[];
+  secondaryMarketListings?: import("./SecondaryMarketListing.model").SecondaryMarketListing[];
 
   @OneToMany("Transaction", "user")
   transactions!: import("./Transaction.model").Transaction[];
@@ -342,6 +342,7 @@ export class User {
         kycVerifications: user.kycVerifications,
         notifications: user.notifications,
         secondaryListings: user.secondaryListings,
+        secondaryMarketListings: user.secondaryMarketListings,
         watchlistEntries: user.watchlistEntries,
         kycHistory: user.kycHistory,
       };

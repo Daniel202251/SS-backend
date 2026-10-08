@@ -23,6 +23,19 @@ export interface KycWebhookPayload {
   reason?: string;
 }
 
+export interface ReviewKycVerificationInput {
+  status: KYCStatus.APPROVED | KYCStatus.REJECTED;
+  reason?: string | null;
+}
+
+export interface KycStatusResponse {
+  verificationId: string | null;
+  status: KYCStatus;
+  rejectionReason: string | null;
+  documents: Record<string, unknown> | null;
+  reviewedAt: Date | null;
+}
+
 export type KycDocumentType = "passport" | "national_id" | "drivers_license";
 
 export interface KycDocumentSubmission {

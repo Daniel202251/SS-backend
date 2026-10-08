@@ -11,12 +11,13 @@ export function isValidInvoiceStateTransition(
       InvoiceStatus.CANCELLED,
       InvoiceStatus.REJECTED,
     ],
-    [InvoiceStatus.PUBLISHED]: [InvoiceStatus.FUNDED, InvoiceStatus.CANCELLED, InvoiceStatus.FAILED],
+    [InvoiceStatus.PUBLISHED]: [InvoiceStatus.FUNDED, InvoiceStatus.CANCELLED, InvoiceStatus.FAILED, InvoiceStatus.EXPIRED],
     [InvoiceStatus.FUNDED]: [InvoiceStatus.SETTLED, InvoiceStatus.CANCELLED],
     [InvoiceStatus.SETTLED]: [InvoiceStatus.CANCELLED],
     [InvoiceStatus.CANCELLED]: [],
     [InvoiceStatus.REJECTED]: [],
     [InvoiceStatus.FAILED]: [],
+    [InvoiceStatus.EXPIRED]: [],
   };
 
   if (!validTransitions[currentStatus]) {

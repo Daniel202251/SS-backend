@@ -39,6 +39,9 @@ export class KYCVerification {
   @Index("idx_kyc_verifications_wallet")
   wallet!: string | null;
 
+  @Column({ name: "rejection_reason", type: "text", nullable: true })
+  rejectionReason!: string | null;
+
   @Column({ name: "verified_at", type: "timestamptz", nullable: true })
   verifiedAt!: Date | null;
 

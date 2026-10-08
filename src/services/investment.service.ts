@@ -622,10 +622,7 @@ export class InvestmentService {
       throw new ServiceError("invalid_wallet", "Investor wallet is required", 400);
     }
 
-    let expiredTransition: InvoiceTransition | null = null;
-    let response: RefundExpiredInvoiceResult;
-
-    ({ response, expiredTransition } = await this.dataSource.transaction(async (manager: EntityManager) => {
+    const { response, expiredTransition } = await this.dataSource.transaction(async (manager: EntityManager) => {
       const invoice = await manager.findOne(Invoice, { where: { id: invoiceId } });
       if (!invoice) {
         throw new ServiceError("INVOICE_NOT_FOUND", "Invoice not found", 404);
@@ -723,7 +720,7 @@ export class InvestmentService {
         },
         expiredTransition: transition,
       };
-    }));
+    });
 
     if (expiredTransition) {
       await this.stateMachine.dispatch(expiredTransition);

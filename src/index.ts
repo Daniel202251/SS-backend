@@ -106,7 +106,6 @@ export async function bootstrap(): Promise<{
     createInvestmentNotifier(notificationService, logger),
     escrowRefundService
   );
-  const sorobanConfig = getSorobanConfig();
 
   const distributor =
     sorobanConfig.paymentDistributorContractId && sorobanConfig.platformSecretKey
@@ -204,9 +203,6 @@ export async function bootstrap(): Promise<{
       })
     : undefined;
 
-  // ---- Feature: Secondary Market ----
-  const secondaryMarketService = createSecondaryMarketService(dataSource);
-
   // ---- Feature: Watchlist ----
   const watchlistService = createWatchlistService(dataSource);
 
@@ -235,7 +231,7 @@ export async function bootstrap(): Promise<{
     aclService: projections.aclService,
     creatorKeyService: projections.creatorKeyService,
     curveMigrationService: projections.curveMigrationService,
-    secondaryMarketService,
+    xlmUsdRateService,
     watchlistService,
     settlementWorker,
     invoiceEscrowContractService: invoiceEscrowContract,

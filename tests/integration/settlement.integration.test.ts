@@ -82,10 +82,6 @@ function createFakeDataSource(invoice: Invoice) {
   };
 
   const dataSource = {
-    // InvestmentService requires a current terms acknowledgement before it
-    // creates an investment. This fixture focuses on settlement behavior, so
-    // its repository stand-in represents an already acknowledged investor.
-    getRepository: () => ({ findOne: async () => ({ acknowledgedAt: new Date() }) }),
     transaction: async (callback: (manager: FakeManager) => Promise<unknown>) => callback(manager),
     // Issue #473 — the accreditation gate looks the investor's terms
     // acknowledgement up before creating the investment.
