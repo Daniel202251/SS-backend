@@ -1,163 +1,181 @@
-import type { NextFunction, Request, Response } from "express";
-import Joi from "joi";
-import type { AuthenticatedRequest } from "../types/auth";
-import type { SecondaryMarketService } from "../services/secondary-market.service";
-import { KYCError, requireApprovedKYC } from "../lib/kyc";
-import { AppError, HttpError, PublicAppError } from "../utils/http-error";
-import { ServiceError } from "../utils/service-error";
+import { Response } from "express";
+import { SecondaryMarketService } from "../services/secondary-market.service";
+import { AuthenticatedRequest } from "../types/auth";
 
-const createListingSchema = Joi.object({
-  invoiceId: Joi.string().uuid().required(),
-  quantity: Joi.string().trim().required(),
-  price: Joi.string().trim().required(),
-});
+export class SecondaryMarketController {
+  constructor(private readonly secondaryMarketService: SecondaryMarketService) {}
 
-const buyListingSchema = Joi.object({
-  quantity: Joi.string().trim().required(),
-  paymentAmount: Joi.string().trim().optional(),
-});
-
-export function createSecondaryMarketController(secondaryMarketService: SecondaryMarketService) {
-  return {
-    async createListing(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const user = req.user;
-        if (!user) {
-          throw new HttpError(401, "Authentication required");
-        }
-
-        requireApprovedKYC(user);
-
-        const { error, value } = createListingSchema.validate(req.body, {
-          stripUnknown: true,
-          convert: true,
-        });
-        if (error) {
-          throw new HttpError(400, `Invalid listing payload: ${error.message}`);
-        }
-
-        const result = await secondaryMarketService.createListing({
-          invoiceId: value.invoiceId,
-          sellerId: user.id,
-          quantity: String(value.quantity),
-          price: String(value.price),
-        });
-
-        res.status(201).json({ success: true, data: result });
-      } catch (error) {
-        if (error instanceof ServiceError) {
-          next(
-            new PublicAppError(
-              error.statusCode,
-              error.message,
-              error.code.toUpperCase(),
-              error.details
-            )
-          );
-          return;
-        }
-        if (error instanceof KYCError) {
-          next(new AppError(error.statusCode, error.message, error.code));
-          return;
-        }
-        next(error);
+  createListing = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Unauthorized" });
       }
-    },
 
-    async getListings(req: Request, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const invoiceId =
-          typeof req.query.invoiceId === "string"
-            ? req.query.invoiceId
-            : typeof req.query.invoice_id === "string"
-              ? req.query.invoice_id
-              : undefined;
-        const result = await secondaryMarketService.getListings(invoiceId);
-        res.status(200).json({ success: true, data: result });
-      } catch (error) {
-        if (error instanceof ServiceError) {
-          next(new PublicAppError(error.statusCode, error.message, error.code.toUpperCase(), error.details));
-          return;
-        }
-        next(error);
-      }
-    },
+      const { invoiceId, quantity, pricePerFraction, expiresAt } = req.body;
 
-    async buyListing(req: AuthenticatedRequest & { params: { id: string } }, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const user = req.user;
-        if (!user) {
-          throw new HttpError(401, "Authentication required");
-        }
-
-        requireApprovedKYC(user);
-
-        const { error, value } = buyListingSchema.validate(req.body, {
-          stripUnknown: true,
-          convert: true,
+      if (!invoiceId || !quantity || !pricePerFraction || !expiresAt) {
+        return res.status(400).json({
+          error: {
+            code: "MISSING_FIELDS",
+            message: "invoiceId, quantity, pricePerFraction, and expiresAt are required",
+          },
         });
-        if (error) {
-          throw new HttpError(400, `Invalid purchase payload: ${error.message}`);
-        }
-
-        const result = await secondaryMarketService.buyListing({
-          listingId: req.params.id,
-          buyerId: user.id,
-          buyerWallet: user.stellarAddress,
-          quantity: String(value.quantity),
-          paymentAmount: value.paymentAmount ? String(value.paymentAmount) : undefined,
-        });
-
-        res.status(200).json({ success: true, data: result });
-      } catch (error) {
-        if (error instanceof ServiceError) {
-          next(
-            new PublicAppError(
-              error.statusCode,
-              error.message,
-              error.code.toUpperCase(),
-              error.details
-            )
-          );
-          return;
-        }
-        if (error instanceof KYCError) {
-          next(new AppError(error.statusCode, error.message, error.code));
-          return;
-        }
-        next(error);
       }
-    },
 
-    async cancelListing(req: AuthenticatedRequest & { params: { id: string } }, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const user = req.user;
-        if (!user) {
-          throw new HttpError(401, "Authentication required");
-        }
+      const listing = await this.secondaryMarketService.createListing({
+        invoiceId: Array.isArray(invoiceId) ? invoiceId[0] : invoiceId,
+        sellerWallet: req.user.stellarAddress,
+        sellerId: req.user.id,
+        quantity: Array.isArray(quantity) ? quantity[0] : quantity,
+        pricePerFraction: Array.isArray(pricePerFraction) ? pricePerFraction[0] : pricePerFraction,
+        expiresAt: new Date(Array.isArray(expiresAt) ? expiresAt[0] : expiresAt),
+      });
 
-        requireApprovedKYC(user);
+      return res.status(201).json({
+        success: true,
+        data: listing,
+      });
+    } catch (err: unknown) {
+      const statusCode =
+        (err as { statusCode?: number }).statusCode || (err as { status?: number }).status || 400;
+      return res.status(statusCode).json({
+        error: {
+          code: (err as { code?: string }).code || "INTERNAL_ERROR",
+          message: (err as { message?: string }).message || "Internal server error",
+        },
+      });
+    }
+  };
 
-        const result = await secondaryMarketService.cancelListing(req.params.id, user.id);
-        res.status(200).json({ success: true, data: result });
-      } catch (error) {
-        if (error instanceof ServiceError) {
-          next(
-            new PublicAppError(
-              error.statusCode,
-              error.message,
-              error.code.toUpperCase(),
-              error.details
-            )
-          );
-          return;
-        }
-        if (error instanceof KYCError) {
-          next(new AppError(error.statusCode, error.message, error.code));
-          return;
-        }
-        next(error);
+  getListings = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const {
+        invoiceId,
+        sellerWallet,
+        minPrice,
+        maxPrice,
+        sortBy = "created_at",
+        sortOrder = "DESC",
+        page = "1",
+        limit = "20",
+      } = req.query;
+
+      const filters = {
+        invoiceId: invoiceId as string | undefined,
+        sellerWallet: sellerWallet as string | undefined,
+        minPrice: minPrice ? Number(Array.isArray(minPrice) ? minPrice[0] : minPrice) : undefined,
+        maxPrice: maxPrice ? Number(Array.isArray(maxPrice) ? maxPrice[0] : maxPrice) : undefined,
+        sortBy: (sortBy as string) as "price" | "expires_at" | "created_at",
+        sortOrder: (sortOrder as string) as "ASC" | "DESC",
+      };
+
+      const pagination = {
+        page: Math.max(1, Number(Array.isArray(page) ? page[0] : page)),
+        limit: Math.min(100, Math.max(1, Number(Array.isArray(limit) ? limit[0] : limit))),
+      };
+
+      const result = await this.secondaryMarketService.getListings(filters, pagination);
+
+      return res.status(200).json({
+        success: true,
+        data: result.data,
+        meta: result.meta,
+      });
+    } catch (err: unknown) {
+      const statusCode =
+        (err as { statusCode?: number }).statusCode || (err as { status?: number }).status || 400;
+      return res.status(statusCode).json({
+        error: {
+          code: (err as { code?: string }).code || "INTERNAL_ERROR",
+          message: (err as { message?: string }).message || "Internal server error",
+        },
+      });
+    }
+  };
+
+  getListingById = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const listingId = Array.isArray(id) ? id[0] : id;
+
+      const listing = await this.secondaryMarketService.getListingById(listingId);
+
+      return res.status(200).json({
+        success: true,
+        data: listing,
+      });
+    } catch (err: unknown) {
+      const statusCode =
+        (err as { statusCode?: number }).statusCode || (err as { status?: number }).status || 400;
+      return res.status(statusCode).json({
+        error: {
+          code: (err as { code?: string }).code || "INTERNAL_ERROR",
+          message: (err as { message?: string }).message || "Internal server error",
+        },
+      });
+    }
+  };
+
+  buyListing = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Unauthorized" });
       }
-    },
+
+      const { id } = req.params;
+      const { quantity } = req.body;
+
+      const result = await this.secondaryMarketService.buyListing({
+        listingId: Array.isArray(id) ? id[0] : id,
+        buyerWallet: req.user.stellarAddress,
+        buyerId: req.user.id,
+        quantity: quantity ? (Array.isArray(quantity) ? quantity[0] : quantity) : undefined,
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (err: unknown) {
+      const statusCode =
+        (err as { statusCode?: number }).statusCode || (err as { status?: number }).status || 400;
+      return res.status(statusCode).json({
+        error: {
+          code: (err as { code?: string }).code || "INTERNAL_ERROR",
+          message: (err as { message?: string }).message || "Internal server error",
+        },
+      });
+    }
+  };
+
+  cancelListing = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      const listing = await this.secondaryMarketService.cancelListing(
+        Array.isArray(id) ? id[0] : id,
+        req.user.stellarAddress,
+        reason
+      );
+
+      return res.status(200).json({
+        success: true,
+        data: listing,
+      });
+    } catch (err: unknown) {
+      const statusCode =
+        (err as { statusCode?: number }).statusCode || (err as { status?: number }).status || 400;
+      return res.status(statusCode).json({
+        error: {
+          code: (err as { code?: string }).code || "INTERNAL_ERROR",
+          message: (err as { message?: string }).message || "Internal server error",
+        },
+      });
+    }
   };
 }

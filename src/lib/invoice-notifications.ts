@@ -19,6 +19,7 @@ export interface NotificationInput {
   type: NotificationType;
   title: string;
   message: string;
+  data?: Record<string, unknown>;
 }
 
 /** Satisfied by `NotificationService.createNotifications`. */
@@ -64,6 +65,12 @@ const INVESTOR_MESSAGES: Partial<
     title: "Invoice Settled",
     message: (invoice) =>
       `Invoice ${invoice.invoiceNumber} has settled and your return has been distributed.`,
+  },
+  [InvoiceStatus.FAILED]: {
+    type: NotificationType.INVOICE,
+    title: "Invoice Failed",
+    message: (invoice) =>
+      `Invoice ${invoice.invoiceNumber} reached maturity without being fully funded.`,
   },
 };
 

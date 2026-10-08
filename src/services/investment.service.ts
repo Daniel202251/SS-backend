@@ -6,9 +6,11 @@ import {
 } from "typeorm";
 import { Invoice } from "../models/Invoice.model";
 import { Investment } from "../models/Investment.model";
+import { InvestorAcknowledgement } from "../models/InvestorAcknowledgement.model";
 import { InvoiceStatus, InvestmentStatus } from "../types/enums";
 import { ServiceError } from "../utils/service-error";
 import { Decimal } from "decimal.js";
+import { getCurrentTermsVersion } from "./investor-acknowledgement.service";
 import {
   createInvoiceStateMachine,
   entityManagerTransitionStore,
@@ -157,6 +159,34 @@ export class InvestmentService {
       ) => Promise<{ txHash: string; status: "SUCCESS" | "FAILED"; ledger: number | null }>;
     }
   ) {}
+
+  /**
+   * Issue #473 — block investment until the wallet has acknowledged the
+   * current TERMS_VERSION. Prior acknowledgements for older versions do not
+   * satisfy this check (re-ack required on bump).
+   */
+  private async assertAccreditationAcknowledged(walletAddress: string | null | undefined): Promise<void> {
+    const wallet = walletAddress?.trim();
+    if (!wallet) {
+      throw new ServiceError(
+        "ACKNOWLEDGEMENT_REQUIRED",
+        "Investor accreditation acknowledgement is required before investing",
+        403
+      );
+    }
+    const currentVersion = getCurrentTermsVersion();
+    const ack = await this.dataSource.getRepository(InvestorAcknowledgement).findOne({
+      where: { walletAddress: wallet, termsVersion: currentVersion },
+      order: { acknowledgedAt: "DESC" },
+    });
+    if (!ack) {
+      throw new ServiceError(
+        "ACKNOWLEDGEMENT_REQUIRED",
+        `Investor must acknowledge terms version ${currentVersion} before investing`,
+        403
+      );
+    }
+  }
 
   /**
    * Aggregates an investor's portfolio across all their investments.
@@ -386,6 +416,8 @@ export class InvestmentService {
    */
   async investInInvoice(input: InvestInInvoiceInput): Promise<InvestInInvoiceResult> {
     const { invoiceId, investorId, walletAddress } = input;
+
+    await this.assertAccreditationAcknowledged(walletAddress);
 
     let amount: Decimal;
     try {
@@ -703,6 +735,8 @@ export class InvestmentService {
   async createInvestment(input: CreateInvestmentInput): Promise<Investment> {
     const { invoiceId, investorId, investmentAmount, investorWallet } = input;
 
+    await this.assertAccreditationAcknowledged(investorWallet);
+
     // Validate investment amount
     const amount = new Decimal(investmentAmount);
     if (amount.isNegative() || amount.isZero()) {
@@ -712,7 +746,7 @@ export class InvestmentService {
     const MAX_RETRIES = 3;
     let attempt = 0;
 
-    while (true) {
+    while (attempt < MAX_RETRIES) {
       try {
         // Side effects are collected from the transaction's return value, so
         // a rolled-back or retried attempt never has any to run.
@@ -720,17 +754,43 @@ export class InvestmentService {
           // 1. Lock the invoice row for update (if supported by the driver).
           //    SQLite does not support row-level locking, so we fall back to a plain read.
           let invoice: Invoice | null;
+          const invoiceRepo = typeof transactionalEntityManager.getRepository === "function"
+            ? transactionalEntityManager.getRepository(Invoice)
+            : null;
+          const getInvoiceQb = (lock: boolean) => {
+            const qb = typeof transactionalEntityManager.createQueryBuilder === "function"
+              ? transactionalEntityManager.createQueryBuilder(Invoice, "invoice")
+              : invoiceRepo && typeof invoiceRepo.createQueryBuilder === "function"
+              ? invoiceRepo.createQueryBuilder("invoice")
+              : null;
+            if (qb && lock && typeof qb.setLock === "function") {
+              return qb.setLock("pessimistic_write");
+            }
+            return qb;
+          };
+
           try {
-            invoice = await transactionalEntityManager
-              .createQueryBuilder(Invoice, "invoice")
-              .setLock("pessimistic_write")
-              .where("invoice.id = :id", { id: invoiceId })
-              .getOne();
+            const qb = getInvoiceQb(true);
+            if (qb) {
+              invoice = await qb.where("invoice.id = :id", { id: invoiceId }).getOne();
+            } else if (typeof transactionalEntityManager.findOne === "function") {
+              invoice = await transactionalEntityManager.findOne(Invoice, { where: { id: invoiceId } });
+            } else if (invoiceRepo) {
+              invoice = await invoiceRepo.findOne({ where: { id: invoiceId } });
+            } else {
+              invoice = null;
+            }
           } catch {
-            invoice = await transactionalEntityManager
-              .createQueryBuilder(Invoice, "invoice")
-              .where("invoice.id = :id", { id: invoiceId })
-              .getOne();
+            const qb = getInvoiceQb(false);
+            if (qb) {
+              invoice = await qb.where("invoice.id = :id", { id: invoiceId }).getOne();
+            } else if (invoiceRepo) {
+              invoice = await invoiceRepo.findOne({ where: { id: invoiceId } });
+            } else if (typeof transactionalEntityManager.findOne === "function") {
+              invoice = await transactionalEntityManager.findOne(Invoice, { where: { id: invoiceId } });
+            } else {
+              invoice = null;
+            }
           }
 
           if (!invoice) {
@@ -739,6 +799,12 @@ export class InvestmentService {
 
           // 2. Validate invoice status
           if (invoice.status !== InvoiceStatus.PUBLISHED) {
+            if (invoice.status === InvoiceStatus.FUNDED) {
+              throw new ServiceError(
+                "INSUFFICIENT_CAPACITY",
+                "Invoice is already fully funded"
+              );
+            }
             throw new ServiceError(
               "INVALID_INVOICE_STATUS",
               `Cannot invest in an invoice with status ${invoice.status}`
@@ -869,6 +935,12 @@ export class InvestmentService {
         throw error;
       }
     }
+
+    throw new ServiceError(
+      "CONCURRENT_INVESTMENT_CONFLICT",
+      "Unable to process investment due to concurrent modifications. Please retry.",
+      409
+    );
   }
 }
 

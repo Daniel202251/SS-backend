@@ -31,12 +31,40 @@ export interface AppConfig {
       max: number;
     };
   };
+  redis: {
+    url: string;
+  };
+  rateLimits: {
+    enabled: boolean;
+    auth: {
+      ip: { windowMs: number; max: number };
+      wallet: { windowMs: number; max: number };
+    };
+    invest: {
+      ip: { windowMs: number; max: number };
+      wallet: { windowMs: number; max: number };
+    };
+    invoiceSubmit: {
+      ip: { windowMs: number; max: number };
+      wallet: { windowMs: number; max: number };
+    };
+  };
   reconciliation: {
     enabled: boolean;
     intervalMs: number;
     batchSize: number;
     gracePeriodMs: number;
     maxRuntimeMs: number;
+  };
+  maturity: {
+    enabled: boolean;
+    intervalMs: number;
+    batchSize: number;
+  };
+  sorobanIndexer: {
+    enabled: boolean;
+    intervalMs: number;
+    lagAlertThresholdLedgers: number;
   };
   stellar: {
     network: SupportedStellarNetwork;
@@ -52,6 +80,8 @@ export interface AppConfig {
   ipfs: {
     apiUrl: string;
     jwt: string;
+    gatewayUrl: string;
+    gatewayTokenTtlSeconds: number;
     maxFileSizeMB: number;
     allowedMimeTypes: string[];
     uploadRateLimit: {
@@ -65,7 +95,10 @@ export interface AppConfig {
   };
   admin: {
     ipWhitelist: string[];
+    wallets: string[];
   };
+  /** Investor accreditation terms version (issue #473). Bumping forces re-ack. */
+  termsVersion: string;
   cache: {
     redisUrl?: string;
     invoicesListTtlSeconds: number;
@@ -88,7 +121,7 @@ export interface AppConfig {
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_JWT_EXPIRES_IN = "15m";
-const DEFAULT_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_CHALLENGE_TTL_MS = 60 * 1000; // 60 seconds (Issue #463)
 const DEFAULT_METRICS_ENABLED = true;
 
 const DEFAULT_CACHE_ENABLED = true;
@@ -103,10 +136,18 @@ const DEFAULT_RECONCILIATION_INTERVAL_MS = 30 * 1000;
 const DEFAULT_RECONCILIATION_BATCH_SIZE = 25;
 const DEFAULT_RECONCILIATION_GRACE_PERIOD_MS = 60 * 1000;
 const DEFAULT_RECONCILIATION_MAX_RUNTIME_MS = 10 * 1000;
+const DEFAULT_SOROBAN_INDEXER_INTERVAL_MS = 10 * 1000;
+const DEFAULT_SOROBAN_INDEXER_LAG_THRESHOLD_LEDGERS = 1000;
+
+const DEFAULT_MATURITY_ENABLED = true;
+const DEFAULT_MATURITY_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_MATURITY_BATCH_SIZE = 50;
 
 const DEFAULT_BODY_SIZE_LIMIT = "1mb";
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15 * 1000;
 
+const DEFAULT_IPFS_GATEWAY_URL = "https://gateway.pinata.cloud";
+const DEFAULT_IPFS_GATEWAY_TOKEN_TTL_SECONDS = 3600;
 const DEFAULT_IPFS_MAX_FILE_SIZE_MB = 10;
 const DEFAULT_IPFS_ALLOWED_MIME_TYPES = [
   "application/pdf",
@@ -243,6 +284,92 @@ export function getConfig(): AppConfig {
       },
     },
 
+    redis: {
+      url: process.env.REDIS_URL ?? "redis://localhost:6379",
+    },
+
+    rateLimits: {
+      enabled: parseBoolean(process.env.RATE_LIMIT_ENABLED, true, "RATE_LIMIT_ENABLED"),
+      auth: {
+        ip: {
+          windowMs: parsePositiveInteger(
+            process.env.RATE_LIMIT_AUTH_IP_WINDOW_MS,
+            60000,
+            "RATE_LIMIT_AUTH_IP_WINDOW_MS"
+          ),
+          max: parsePositiveInteger(
+            process.env.RATE_LIMIT_AUTH_IP_MAX,
+            20,
+            "RATE_LIMIT_AUTH_IP_MAX"
+          ),
+        },
+        wallet: {
+          windowMs: parsePositiveInteger(
+            process.env.RATE_LIMIT_AUTH_WALLET_WINDOW_MS,
+            60000,
+            "RATE_LIMIT_AUTH_WALLET_WINDOW_MS"
+          ),
+          max: parsePositiveInteger(
+            process.env.RATE_LIMIT_AUTH_WALLET_MAX,
+            10,
+            "RATE_LIMIT_AUTH_WALLET_MAX"
+          ),
+        },
+      },
+      invest: {
+        ip: {
+          windowMs: parsePositiveInteger(
+            process.env.RATE_LIMIT_INVEST_IP_WINDOW_MS,
+            60000,
+            "RATE_LIMIT_INVEST_IP_WINDOW_MS"
+          ),
+          max: parsePositiveInteger(
+            process.env.RATE_LIMIT_INVEST_IP_MAX,
+            30,
+            "RATE_LIMIT_INVEST_IP_MAX"
+          ),
+        },
+        wallet: {
+          windowMs: parsePositiveInteger(
+            process.env.RATE_LIMIT_INVEST_WALLET_WINDOW_MS,
+            60000,
+            "RATE_LIMIT_INVEST_WALLET_WINDOW_MS"
+          ),
+          max: parsePositiveInteger(
+            process.env.RATE_LIMIT_INVEST_WALLET_MAX,
+            10,
+            "RATE_LIMIT_INVEST_WALLET_MAX"
+          ),
+        },
+      },
+      invoiceSubmit: {
+        ip: {
+          windowMs: parsePositiveInteger(
+            process.env.RATE_LIMIT_INVOICE_SUBMIT_IP_WINDOW_MS,
+            60000,
+            "RATE_LIMIT_INVOICE_SUBMIT_IP_WINDOW_MS"
+          ),
+          max: parsePositiveInteger(
+            process.env.RATE_LIMIT_INVOICE_SUBMIT_IP_MAX,
+            30,
+            "RATE_LIMIT_INVOICE_SUBMIT_IP_MAX"
+          ),
+        },
+        wallet: {
+          windowMs: parsePositiveInteger(
+            process.env.RATE_LIMIT_INVOICE_SUBMIT_WALLET_WINDOW_MS,
+            60000,
+            "RATE_LIMIT_INVOICE_SUBMIT_WALLET_WINDOW_MS"
+          ),
+          max: parsePositiveInteger(
+            process.env.RATE_LIMIT_INVOICE_SUBMIT_WALLET_MAX,
+            10,
+            "RATE_LIMIT_INVOICE_SUBMIT_WALLET_MAX"
+          ),
+        },
+      },
+    },
+
     reconciliation: {
       enabled: parseBoolean(
         process.env.STELLAR_RECONCILIATION_ENABLED,
@@ -271,6 +398,42 @@ export function getConfig(): AppConfig {
       ),
     },
 
+    maturity: {
+      enabled: parseBoolean(
+        process.env.INVOICE_MATURITY_JOB_ENABLED,
+        DEFAULT_MATURITY_ENABLED,
+        "INVOICE_MATURITY_JOB_ENABLED"
+      ),
+      intervalMs: parsePositiveInteger(
+        process.env.INVOICE_MATURITY_JOB_INTERVAL_MS,
+        DEFAULT_MATURITY_INTERVAL_MS,
+        "INVOICE_MATURITY_JOB_INTERVAL_MS"
+      ),
+      batchSize: parsePositiveInteger(
+        process.env.INVOICE_MATURITY_JOB_BATCH_SIZE,
+        DEFAULT_MATURITY_BATCH_SIZE,
+        "INVOICE_MATURITY_JOB_BATCH_SIZE"
+      ),
+    },
+
+    sorobanIndexer: {
+      enabled: parseBoolean(
+        process.env.SOROBAN_EVENT_INDEXER_ENABLED,
+        false,
+        "SOROBAN_EVENT_INDEXER_ENABLED"
+      ),
+      intervalMs: parsePositiveInteger(
+        process.env.SOROBAN_EVENT_INDEXER_INTERVAL_MS,
+        DEFAULT_SOROBAN_INDEXER_INTERVAL_MS,
+        "SOROBAN_EVENT_INDEXER_INTERVAL_MS"
+      ),
+      lagAlertThresholdLedgers: parsePositiveInteger(
+        process.env.SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS,
+        DEFAULT_SOROBAN_INDEXER_LAG_THRESHOLD_LEDGERS,
+        "SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS"
+      ),
+    },
+
     stellar: resolveNetwork(process.env.STELLAR_NETWORK),
 
     sorobanEscrow: {
@@ -283,6 +446,12 @@ export function getConfig(): AppConfig {
     ipfs: {
       apiUrl: requireString(process.env.IPFS_API_URL, "IPFS_API_URL"),
       jwt: requireString(process.env.IPFS_JWT, "IPFS_JWT"),
+      gatewayUrl: process.env.IPFS_GATEWAY_URL || DEFAULT_IPFS_GATEWAY_URL,
+      gatewayTokenTtlSeconds: parsePositiveInteger(
+        process.env.IPFS_GATEWAY_TOKEN_TTL_SECONDS,
+        DEFAULT_IPFS_GATEWAY_TOKEN_TTL_SECONDS,
+        "IPFS_GATEWAY_TOKEN_TTL_SECONDS"
+      ),
       maxFileSizeMB: parsePositiveInteger(
         process.env.IPFS_MAX_FILE_SIZE_MB,
         DEFAULT_IPFS_MAX_FILE_SIZE_MB,
@@ -317,7 +486,10 @@ export function getConfig(): AppConfig {
 
     admin: {
       ipWhitelist: parseCsv(process.env.ADMIN_IP_WHITELIST),
+      wallets: parseCsv(process.env.ADMIN_WALLETS),
     },
+
+    termsVersion: (process.env.TERMS_VERSION?.trim() || "1"),
 
     cache: {
       redisUrl: process.env.REDIS_URL || undefined,

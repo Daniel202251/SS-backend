@@ -28,7 +28,8 @@ export function createInvoiceInvestmentController(investmentService: InvestmentS
 
         requireApprovedKYC(user);
 
-        const { walletAddress, amount, ledgerSequence } = req.body;
+        const { amount, ledgerSequence } = req.body;
+        const walletAddress = req.body.walletAddress || user.stellarAddress;
         if (walletAddress !== user.stellarAddress) {
           throw new AppError(
             403,
@@ -37,8 +38,10 @@ export function createInvoiceInvestmentController(investmentService: InvestmentS
           );
         }
 
+        const params = req.params as Record<string, string | undefined>;
+        const invoiceId = params.id || params.invoiceId || "";
         const { investment, funding } = await investmentService.investInInvoice({
-          invoiceId: req.params.id,
+          invoiceId,
           investorId: user.id,
           walletAddress,
           amount,

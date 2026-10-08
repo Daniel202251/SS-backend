@@ -34,6 +34,8 @@ describe("IPFS upload retry exhaustion (issue #218)", () => {
   const ipfsConfig = {
     apiUrl: "https://api.pinata.cloud",
     jwt: "super-secret-pinata-jwt-should-never-leak",
+    gatewayUrl: "https://gateway.pinata.cloud",
+    gatewayTokenTtlSeconds: 3600,
     maxFileSizeMB: 10,
     allowedMimeTypes: ["application/pdf", "image/jpeg", "image/png"],
     uploadRateLimit: {
@@ -43,14 +45,14 @@ describe("IPFS upload retry exhaustion (issue #218)", () => {
   };
 
   function createFakeInvoiceRepository(invoice: Invoice) {
-    const store = new Map<string, Invoice>([[invoice.id, { ...invoice }]]);
+    const store = new Map<string, Invoice>([[invoice.id, { ...invoice } as unknown as Invoice]]);
 
     return {
       findOne: jest.fn(async ({ where }: { where: { id: string } }) => store.get(where.id) ?? null),
       findOneBy: jest.fn(async () => null),
       find: jest.fn(async () => []),
       count: jest.fn(async () => 0),
-      create: jest.fn((data: Partial<Invoice>) => ({ ...invoice, ...data }) as Invoice),
+      create: jest.fn((data: Partial<Invoice>) => ({ ...invoice, ...data } as unknown as Invoice)),
       save: jest.fn(async (updated: Invoice) => {
         store.set(updated.id, updated);
         return updated;
@@ -90,7 +92,7 @@ describe("IPFS upload retry exhaustion (issue #218)", () => {
       seller: undefined as unknown as Invoice["seller"],
       investments: [],
       transactions: [],
-    } as Invoice;
+    } as unknown as Invoice;
   }
 
   /**

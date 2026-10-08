@@ -40,6 +40,13 @@ class PauseCheckTimeoutError extends Error {
   }
 }
 
+class ContractPausedError extends Error {
+  constructor(public readonly contractId: string) {
+    super(`Contract ${contractId} is paused`);
+    this.name = "ContractPausedError";
+  }
+}
+
 /**
  * Normalises and validates the configured contract id up front.
  *
@@ -88,53 +95,36 @@ function resolveGuardedContracts(
 }
 
 /**
- * Reads every contract's pause state concurrently and resolves with the first
- * contract found paused, or null when none are.
- *
- * Reads run in parallel so N contracts cost one round trip, not N. A paused
- * reading is definitive, so it short-circuits without waiting for slower
- * reads — and wins over a failed read of another contract. Only when no
- * contract is paused does a failed read reject the check.
+ * Reads every contract's pause state concurrently. Throws a ContractPausedError
+ * if any contract is paused, short-circuiting the check. If RPC errors occur,
+ * they are deferred until all checks complete, ensuring that a paused state
+ * always takes precedence over a failed read.
  */
-function findPausedContract(
+async function processEfficiently(
   service: ContractGuardService,
   contractIds: readonly string[]
-): Promise<string | null> {
-  return new Promise<string | null>((resolve, reject) => {
-    let pending = contractIds.length;
-    let firstError: unknown;
-    let hasError = false;
+): Promise<void> {
+  const errors: unknown[] = [];
 
-    const settle = () => {
-      pending -= 1;
-      if (pending > 0) return;
-      if (hasError) {
-        reject(firstError);
-      } else {
-        resolve(null);
+  await Promise.all(
+    contractIds.map(async (id) => {
+      try {
+        const isPaused = await service.checkContractPauseState(id);
+        if (isPaused) {
+          throw new ContractPausedError(id);
+        }
+      } catch (error) {
+        if (error instanceof ContractPausedError) {
+          throw error;
+        }
+        errors.push(error);
       }
-    };
+    })
+  );
 
-    for (const id of contractIds) {
-      Promise.resolve()
-        .then(() => service.checkContractPauseState(id))
-        .then(
-          (paused) => {
-            if (paused === true) {
-              resolve(id);
-            }
-            settle();
-          },
-          (error: unknown) => {
-            if (!hasError) {
-              hasError = true;
-              firstError = error;
-            }
-            settle();
-          }
-        );
-    }
-  });
+  if (errors.length > 0) {
+    throw errors[0];
+  }
 }
 
 function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
@@ -201,13 +191,36 @@ export function checkContractNotPaused({
     }
 
     const startedAt = Date.now();
-    let pausedContractId: string | null;
+
     try {
-      pausedContractId = await withTimeout(
-        findPausedContract(contractGuardService, guardedContractIds),
+      await withTimeout(
+        processEfficiently(contractGuardService, guardedContractIds),
         timeoutMs
       );
+      
+      // If we reach here, no contract is paused
+      next();
     } catch (error) {
+      if (error instanceof ContractPausedError) {
+        logger.warn("Request blocked: smart contract is paused", {
+          contract_id: error.contractId,
+          method: req.method,
+          path: requestPath(req),
+        });
+
+        if (!res.headersSent) {
+          res.setHeader("Retry-After", String(PAUSED_RETRY_AFTER_SECONDS));
+          res.status(503).json({
+            success: false,
+            error: {
+              code: "CONTRACT_PAUSED",
+              message: "Smart contract operations are currently paused by administration.",
+            },
+          });
+        }
+        return;
+      }
+
       // The service already degrades gracefully on RPC failure, so reaching
       // here means something unexpected broke or the read hung. Fail the
       // request rather than waving it through on an unknown pause state.
@@ -228,31 +241,6 @@ export function checkContractNotPaused({
           "CONTRACT_PAUSE_CHECK_FAILED"
         )
       );
-      return;
     }
-
-    if (!pausedContractId) {
-      next();
-      return;
-    }
-
-    logger.warn("Request blocked: smart contract is paused", {
-      contract_id: pausedContractId,
-      method: req.method,
-      path: requestPath(req),
-    });
-
-    if (res.headersSent) {
-      return;
-    }
-
-    res.setHeader("Retry-After", String(PAUSED_RETRY_AFTER_SECONDS));
-    res.status(503).json({
-      success: false,
-      error: {
-        code: "CONTRACT_PAUSED",
-        message: "Smart contract operations are currently paused by administration.",
-      },
-    });
   };
 }

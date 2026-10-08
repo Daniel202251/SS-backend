@@ -6,6 +6,8 @@ describe("IPFSService", () => {
   const mockConfig = {
     apiUrl: "https://api.pinata.cloud",
     jwt: "test-jwt-token",
+    gatewayUrl: "https://gateway.pinata.cloud",
+    gatewayTokenTtlSeconds: 3600,
     maxFileSizeMB: 10,
     allowedMimeTypes: ["application/pdf", "image/jpeg", "image/png"],
     uploadRateLimit: {

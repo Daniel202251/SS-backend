@@ -1,8 +1,8 @@
-import { Router, type RequestHandler } from "express";
-import { createSecondaryMarketController } from "../controllers/secondary-market.controller";
+import { Router } from "express";
+import { SecondaryMarketController } from "../controllers/secondary-market.controller";
+import { SecondaryMarketService } from "../services/secondary-market.service";
 import { createAuthMiddleware } from "../middleware/auth.middleware";
 import type { AuthService } from "../services/auth.service";
-import type { SecondaryMarketService } from "../services/secondary-market.service";
 
 export interface SecondaryMarketRouterDependencies {
   secondaryMarketService: SecondaryMarketService;
@@ -14,14 +14,23 @@ export function createSecondaryMarketRouter({
   authService,
 }: SecondaryMarketRouterDependencies): Router {
   const router = Router();
-  const controller = createSecondaryMarketController(secondaryMarketService);
+  const controller = new SecondaryMarketController(secondaryMarketService);
   const authMiddleware = createAuthMiddleware(authService);
 
-  router.post("/listings", authMiddleware as RequestHandler, controller.createListing as RequestHandler);
-  router.get("/listings", controller.getListings as RequestHandler);
-  router.post("/listings/:id/buy", authMiddleware as RequestHandler, controller.buyListing as RequestHandler);
-  router.post("/listings/:id/cancel", authMiddleware as RequestHandler, controller.cancelListing as RequestHandler);
-  router.delete("/listings/:id", authMiddleware as RequestHandler, controller.cancelListing as RequestHandler);
+  // POST /api/v1/secondary/listings - Create a new listing
+  router.post("/listings", authMiddleware, controller.createListing);
+
+  // GET /api/v1/secondary/listings - Get active listings with filters
+  router.get("/listings", authMiddleware, controller.getListings);
+
+  // GET /api/v1/secondary/listings/:id - Get listing details
+  router.get("/listings/:id", authMiddleware, controller.getListingById);
+
+  // POST /api/v1/secondary/listings/:id/buy - Buy a listing
+  router.post("/listings/:id/buy", authMiddleware, controller.buyListing);
+
+  // DELETE /api/v1/secondary/listings/:id - Cancel a listing
+  router.delete("/listings/:id", authMiddleware, controller.cancelListing);
 
   return router;
 }

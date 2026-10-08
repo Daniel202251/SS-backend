@@ -1,348 +1,411 @@
-import { DataSource, In, type EntityManager } from "typeorm";
-import Decimal from "decimal.js";
+import { DataSource, EntityManager } from "typeorm";
+import { Decimal } from "decimal.js";
+import { SecondaryListing } from "../models/SecondaryListing.model";
 import { Invoice } from "../models/Invoice.model";
 import { Investment } from "../models/Investment.model";
-import { SecondaryMarketListing } from "../models/SecondaryMarketListing.model";
-import { SecondaryMarketPurchase } from "../models/SecondaryMarketPurchase.model";
-import { InvestmentStatus } from "../types/enums";
-import { SecondaryMarketListingStatus, SecondaryMarketPurchaseStatus } from "../types/secondary-market";
+import { ListingStatus, InvoiceStatus, InvestmentStatus } from "../types/enums";
 import { ServiceError } from "../utils/service-error";
+import { logger } from "../observability/logger";
 
-export interface CreateSecondaryMarketListingInput {
+export interface CreateListingInput {
   invoiceId: string;
-  sellerId: string;
+  sellerWallet: string;
+  sellerId?: string;
   quantity: string;
-  price: string;
+  pricePerFraction: string;
+  expiresAt: Date;
 }
 
-export interface BuySecondaryMarketListingInput {
+export interface ListingFilters {
+  invoiceId?: string;
+  sellerWallet?: string;
+  status?: ListingStatus;
+  minPrice?: number;
+  maxPrice?: number;
+  sortBy?: "price" | "expires_at" | "created_at";
+  sortOrder?: "ASC" | "DESC";
+}
+
+export interface PaginationOptions {
+  page: number;
+  limit: number;
+}
+
+export interface BuyListingInput {
   listingId: string;
+  buyerWallet: string;
   buyerId: string;
-  buyerWallet?: string | null;
-  quantity: string;
-  paymentAmount?: string;
+  quantity?: string;
 }
 
-export interface SecondaryMarketListingSummary {
+export interface ListingResult {
   id: string;
   invoiceId: string;
-  sellerId: string;
-  price: string;
+  sellerWallet: string;
   quantity: string;
-  status: SecondaryMarketListingStatus;
+  pricePerFraction: string;
+  totalPrice: string;
+  status: ListingStatus;
+  expiresAt: Date;
   createdAt: Date;
-  updatedAt: Date;
 }
 
-function parsePositiveDecimal(value: string, field: string): Decimal {
-  try {
-    const parsed = new Decimal(value);
-    if (!parsed.isFinite() || parsed.lte(0)) {
-      throw new Error();
-    }
-    if (parsed.decimalPlaces() > 4) {
-      throw new Error();
-    }
-    return parsed;
-  } catch {
-    throw new ServiceError("INVALID_AMOUNT", `${field} must be a positive decimal value with up to 4 decimal places`, 400);
-  }
+export interface ListingDetailResult extends ListingResult {
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    customerName: string;
+    amount: string;
+    status: InvoiceStatus;
+    dueDate: Date;
+  };
+}
+
+export interface BuyListingResult {
+  listingId: string;
+  buyerWallet: string;
+  quantity: string;
+  totalPrice: string;
+  transactionHash?: string;
 }
 
 export class SecondaryMarketService {
   constructor(private readonly dataSource: DataSource) {}
 
-  async createListing(input: CreateSecondaryMarketListingInput): Promise<SecondaryMarketListingSummary> {
-    const quantity = parsePositiveDecimal(input.quantity, "quantity");
-    const price = parsePositiveDecimal(input.price, "price");
-
+  /**
+   * Create a new secondary market listing for invoice fractions.
+   * Validates quantity against seller's available holding balance.
+   */
+  async createListing(input: CreateListingInput): Promise<SecondaryListing> {
     return this.dataSource.transaction(async (manager: EntityManager) => {
-      const invoice = await manager.findOne(Invoice, { where: { id: input.invoiceId } });
+      const { invoiceId, sellerWallet, sellerId, quantity, pricePerFraction, expiresAt } = input;
+
+      // Validate input
+      const quantityDecimal = new Decimal(quantity);
+      const priceDecimal = new Decimal(pricePerFraction);
+
+      if (quantityDecimal.lte(0)) {
+        throw new ServiceError("INVALID_QUANTITY", "Quantity must be greater than zero", 400);
+      }
+
+      if (priceDecimal.lte(0)) {
+        throw new ServiceError("INVALID_PRICE", "Price per fraction must be greater than zero", 400);
+      }
+
+      if (new Date(expiresAt) <= new Date()) {
+        throw new ServiceError("INVALID_EXPIRY", "Expiry date must be in the future", 400);
+      }
+
+      // Get invoice
+      const invoice = await manager.findOne(Invoice, { where: { id: invoiceId } });
       if (!invoice) {
         throw new ServiceError("INVOICE_NOT_FOUND", "Invoice not found", 404);
       }
 
-      if (invoice.dueDate && new Date(invoice.dueDate) < new Date()) {
+      if (invoice.status !== InvoiceStatus.FUNDED && invoice.status !== InvoiceStatus.SETTLED) {
         throw new ServiceError(
-          "LISTING_MATURED_INVOICE",
-          "Listings cannot be created for invoices that have passed maturity",
-          422
+          "INVALID_INVOICE_STATUS",
+          "Only funded or settled invoices can be listed on secondary market",
+          400
         );
       }
 
-      const owned = await this.getOwnedShareAmount(manager, input.invoiceId, input.sellerId);
-      if (owned.lt(quantity)) {
+      // Get seller's investments in this invoice
+      const investments = await manager.find(Investment, {
+        where: {
+          invoiceId,
+          investorWallet: sellerWallet,
+          status: InvestmentStatus.CONFIRMED,
+        },
+      });
+
+      if (investments.length === 0) {
         throw new ServiceError(
-          "LISTING_INSUFFICIENT_SHARES",
-          "Seller does not own enough fractional shares to create this listing",
-          409,
-          { sellerId: input.sellerId, invoiceId: input.invoiceId, owned: owned.toFixed(4), requested: quantity.toFixed(4) }
+          "NO_HOLDINGS",
+          "Seller has no confirmed investments in this invoice",
+          400
         );
       }
 
-      const listing = manager.create(SecondaryMarketListing, {
-        invoiceId: input.invoiceId,
-        sellerId: input.sellerId,
-        quantity: quantity.toFixed(4),
-        price: price.toFixed(4),
-        status: SecondaryMarketListingStatus.ACTIVE,
+      // Calculate total holdings
+      const totalHoldings = investments.reduce(
+        (sum, inv) => sum.plus(new Decimal(inv.investmentAmount)),
+        new Decimal(0)
+      );
+
+      // Check if quantity exceeds holdings
+      if (quantityDecimal.gt(totalHoldings)) {
+        throw new ServiceError(
+          "INSUFFICIENT_HOLDINGS",
+          `Requested quantity ${quantity} exceeds available holdings ${totalHoldings.toFixed(4)}`,
+          400
+        );
+      }
+
+      // Calculate total price
+      const totalPrice = quantityDecimal.times(priceDecimal);
+
+      // Create listing
+      const listing = manager.create(SecondaryListing, {
+        invoiceId,
+        sellerWallet,
+        sellerId: sellerId || null,
+        quantity: quantityDecimal.toFixed(4),
+        pricePerFraction: priceDecimal.toFixed(4),
+        totalPrice: totalPrice.toFixed(4),
+        status: ListingStatus.ACTIVE,
+        expiresAt: new Date(expiresAt),
       });
 
       const saved = await manager.save(listing);
-      return {
-        id: saved.id,
-        invoiceId: saved.invoiceId,
-        sellerId: saved.sellerId,
-        price: saved.price,
-        quantity: saved.quantity,
-        status: saved.status,
-        createdAt: saved.createdAt,
-        updatedAt: saved.updatedAt,
-      };
+
+      logger.info("secondary.listing.created", {
+        listing_id: saved.id,
+        invoice_id: invoiceId,
+        seller_wallet: sellerWallet,
+        quantity: quantity,
+        price_per_fraction: pricePerFraction,
+      });
+
+      return saved;
     });
   }
 
-  async getListings(invoiceId?: string): Promise<SecondaryMarketListingSummary[]> {
-    const query = this.dataSource.getRepository(SecondaryMarketListing).createQueryBuilder("listing");
-    query.where("listing.status = :status", { status: SecondaryMarketListingStatus.ACTIVE });
-    if (invoiceId) {
-      query.andWhere("listing.invoice_id = :invoiceId", { invoiceId });
-    }
-    query.orderBy("listing.created_at", "DESC");
+  /**
+   * Get active listings with filters and pagination.
+   * Expired listings are excluded from results.
+   */
+  async getListings(
+    filters: ListingFilters = {},
+    pagination: PaginationOptions = { page: 1, limit: 20 }
+  ): Promise<{ data: ListingResult[]; meta: { total: number; page: number; limit: number; totalPages: number } }> {
+    const repository = this.dataSource.getRepository(SecondaryListing);
+    const queryBuilder = repository
+      .createQueryBuilder("listing")
+      .leftJoinAndSelect("listing.invoice", "invoice")
+      .where("listing.deleted_at IS NULL")
+      .andWhere("listing.status = :status", { status: ListingStatus.ACTIVE })
+      .andWhere("listing.expires_at > :now", { now: new Date() });
 
-    const listings = await query.getMany();
-    return listings.map((listing) => ({
+    // Apply filters
+    if (filters.invoiceId) {
+      queryBuilder.andWhere("listing.invoice_id = :invoiceId", { invoiceId: filters.invoiceId });
+    }
+
+    if (filters.sellerWallet) {
+      queryBuilder.andWhere("listing.seller_wallet = :sellerWallet", {
+        sellerWallet: filters.sellerWallet,
+      });
+    }
+
+    if (filters.minPrice !== undefined) {
+      queryBuilder.andWhere("CAST(listing.price_per_fraction AS DECIMAL) >= :minPrice", {
+        minPrice: filters.minPrice,
+      });
+    }
+
+    if (filters.maxPrice !== undefined) {
+      queryBuilder.andWhere("CAST(listing.price_per_fraction AS DECIMAL) <= :maxPrice", {
+        maxPrice: filters.maxPrice,
+      });
+    }
+
+    // Apply sorting
+    const sortColumn = this.getSortColumn(filters.sortBy || "created_at");
+    queryBuilder.orderBy(sortColumn, filters.sortOrder || "DESC");
+    queryBuilder.addOrderBy("listing.id", "ASC");
+
+    // Get total count
+    const total = await queryBuilder.getCount();
+
+    // Apply pagination
+    const offset = (pagination.page - 1) * pagination.limit;
+    queryBuilder.skip(offset).take(pagination.limit);
+
+    const listings = await queryBuilder.getMany();
+
+    const data: ListingResult[] = listings.map((listing) => ({
       id: listing.id,
       invoiceId: listing.invoiceId,
-      sellerId: listing.sellerId,
-      price: listing.price,
+      sellerWallet: listing.sellerWallet,
       quantity: listing.quantity,
+      pricePerFraction: listing.pricePerFraction,
+      totalPrice: listing.totalPrice,
       status: listing.status,
+      expiresAt: listing.expiresAt,
       createdAt: listing.createdAt,
-      updatedAt: listing.updatedAt,
     }));
-  }
 
-  async buyListing(input: BuySecondaryMarketListingInput): Promise<{
-    listing: SecondaryMarketListingSummary;
-    purchase: {
-      id: string;
-      invoiceId: string;
-      listingId: string;
-      sellerId: string;
-      buyerId: string;
-      quantity: string;
-      totalPrice: string;
-      status: SecondaryMarketPurchaseStatus;
-      createdAt: Date;
+    return {
+      data,
+      meta: {
+        total,
+        page: pagination.page,
+        limit: pagination.limit,
+        totalPages: Math.ceil(total / pagination.limit),
+      },
     };
-    totalPrice: string;
-    quantity: string;
-  }> {
-    const quantity = parsePositiveDecimal(input.quantity, "quantity");
-
-    return this.dataSource.transaction(async (manager: EntityManager) => {
-      const listing = await manager.findOne(SecondaryMarketListing, {
-        where: { id: input.listingId, status: SecondaryMarketListingStatus.ACTIVE },
-      });
-      if (!listing) {
-        throw new ServiceError("LISTING_NOT_FOUND", "Listing not found or no longer active", 404);
-      }
-      if (listing.sellerId === input.buyerId) {
-        throw new ServiceError("SELF_DEALING", "Buyers cannot purchase their own listing", 400);
-      }
-
-      const available = new Decimal(listing.quantity);
-      if (quantity.gt(available)) {
-        throw new ServiceError(
-          "LISTING_OVER_PURCHASED",
-          "Purchase quantity exceeds the remaining listing quantity",
-          409,
-          { available: available.toFixed(4), requested: quantity.toFixed(4) }
-        );
-      }
-
-      const totalPrice = new Decimal(listing.price).times(quantity);
-      const requestedPayment = input.paymentAmount ? parsePositiveDecimal(input.paymentAmount, "paymentAmount") : totalPrice;
-      if (requestedPayment.lt(totalPrice)) {
-        throw new ServiceError(
-          "INSUFFICIENT_PAYMENT",
-          "Payment amount is less than the total price for the requested quantity",
-          400,
-          { required: totalPrice.toFixed(4), provided: requestedPayment.toFixed(4) }
-        );
-      }
-
-      const remainingQuantity = available.minus(quantity);
-      listing.quantity = remainingQuantity.toFixed(4);
-      if (remainingQuantity.lte(0)) {
-        listing.status = SecondaryMarketListingStatus.SOLD;
-      }
-      await manager.save(listing);
-
-      const purchase = manager.create(SecondaryMarketPurchase, {
-        listingId: listing.id,
-        invoiceId: listing.invoiceId,
-        sellerId: listing.sellerId,
-        buyerId: input.buyerId,
-        quantity: quantity.toFixed(4),
-        totalPrice: totalPrice.toFixed(4),
-        status: SecondaryMarketPurchaseStatus.COMPLETED,
-      });
-      const savedPurchase = await manager.save(purchase);
-
-      await this.transferOwnership(manager, listing.invoiceId, listing.sellerId, input.buyerId, quantity, input.buyerWallet ?? null);
-
-      return {
-        listing: {
-          id: listing.id,
-          invoiceId: listing.invoiceId,
-          sellerId: listing.sellerId,
-          price: listing.price,
-          quantity: listing.quantity,
-          status: listing.status,
-          createdAt: listing.createdAt,
-          updatedAt: listing.updatedAt,
-        },
-        purchase: {
-          id: savedPurchase.id,
-          invoiceId: savedPurchase.invoiceId,
-          listingId: savedPurchase.listingId,
-          sellerId: savedPurchase.sellerId,
-          buyerId: savedPurchase.buyerId,
-          quantity: savedPurchase.quantity,
-          totalPrice: savedPurchase.totalPrice,
-          status: savedPurchase.status,
-          createdAt: savedPurchase.createdAt,
-        },
-        totalPrice: totalPrice.toFixed(4),
-        quantity: quantity.toFixed(4),
-      };
-    });
   }
 
-  async cancelListing(listingId: string, sellerId: string): Promise<SecondaryMarketListingSummary> {
+  /**
+   * Get a specific listing by ID with full details.
+   */
+  async getListingById(id: string): Promise<ListingDetailResult> {
+    const repository = this.dataSource.getRepository(SecondaryListing);
+    const listing = await repository.findOne({
+      where: { id },
+      relations: ["invoice"],
+    });
+
+    if (!listing) {
+      throw new ServiceError("LISTING_NOT_FOUND", "Listing not found", 404);
+    }
+
+    return {
+      id: listing.id,
+      invoiceId: listing.invoiceId,
+      sellerWallet: listing.sellerWallet,
+      quantity: listing.quantity,
+      pricePerFraction: listing.pricePerFraction,
+      totalPrice: listing.totalPrice,
+      status: listing.status,
+      expiresAt: listing.expiresAt,
+      createdAt: listing.createdAt,
+      invoice: {
+        id: listing.invoice.id,
+        invoiceNumber: listing.invoice.invoiceNumber,
+        customerName: listing.invoice.customerName,
+        amount: listing.invoice.amount,
+        status: listing.invoice.status,
+        dueDate: listing.invoice.dueDate,
+      },
+    };
+  }
+
+  /**
+   * Execute purchase of a listing and transfer fractions.
+   * This would integrate with Soroban for actual fraction transfer.
+   */
+  async buyListing(input: BuyListingInput): Promise<BuyListingResult> {
     return this.dataSource.transaction(async (manager: EntityManager) => {
-      const listing = await manager.findOne(SecondaryMarketListing, { where: { id: listingId } });
+      const { listingId, buyerWallet, quantity } = input;
+
+      // Get listing
+      const listing = await manager.findOne(SecondaryListing, {
+        where: { id: listingId },
+        relations: ["invoice"],
+      });
+
       if (!listing) {
         throw new ServiceError("LISTING_NOT_FOUND", "Listing not found", 404);
       }
-      if (listing.sellerId !== sellerId) {
-        throw new ServiceError("LISTING_FORBIDDEN", "Only the listing owner can cancel the listing", 403);
-      }
-      if (listing.status !== SecondaryMarketListingStatus.ACTIVE) {
-        throw new ServiceError("LISTING_ALREADY_INACTIVE", "Only active listings can be cancelled", 409);
+
+      if (listing.status !== ListingStatus.ACTIVE) {
+        throw new ServiceError("LISTING_NOT_ACTIVE", "Listing is not active", 400);
       }
 
-      listing.status = SecondaryMarketListingStatus.CANCELLED;
-      const saved = await manager.save(listing);
+      if (listing.isExpired()) {
+        throw new ServiceError("LISTING_EXPIRED", "Listing has expired", 400);
+      }
+
+      if (listing.sellerWallet === buyerWallet) {
+        throw new ServiceError("SELF_PURCHASE", "Cannot buy your own listing", 400);
+      }
+
+      // Determine quantity to buy (default to full listing quantity)
+      const buyQuantity = quantity ? new Decimal(quantity) : new Decimal(listing.quantity);
+
+      if (buyQuantity.lte(0)) {
+        throw new ServiceError("INVALID_QUANTITY", "Quantity must be greater than zero", 400);
+      }
+
+      if (buyQuantity.gt(new Decimal(listing.quantity))) {
+        throw new ServiceError(
+          "INSUFFICIENT_QUANTITY",
+          `Requested quantity ${buyQuantity.toFixed(4)} exceeds available ${listing.quantity}`,
+          400
+        );
+      }
+
+      // Calculate total price
+      const totalPrice = buyQuantity.times(new Decimal(listing.pricePerFraction));
+
+      // TODO: Submit Soroban fraction transfer transaction here
+      // This would integrate with the Soroban contract to transfer fractions
+      // For now, we'll simulate with a placeholder transaction hash
+      const transactionHash = `simulated_${Date.now()}`;
+
+      // Update listing status if fully sold
+      if (buyQuantity.equals(new Decimal(listing.quantity))) {
+        listing.status = ListingStatus.SOLD;
+        await manager.save(listing);
+      } else {
+        // Partial sale - reduce quantity
+        const remainingQuantity = new Decimal(listing.quantity).minus(buyQuantity);
+        listing.quantity = remainingQuantity.toFixed(4);
+        listing.totalPrice = remainingQuantity.times(new Decimal(listing.pricePerFraction)).toFixed(4);
+        await manager.save(listing);
+      }
+
+      logger.info("secondary.listing.purchased", {
+        listing_id: listingId,
+        buyer_wallet: buyerWallet,
+        quantity: buyQuantity.toFixed(4),
+        total_price: totalPrice.toFixed(4),
+        transaction_hash: transactionHash,
+      });
+
       return {
-        id: saved.id,
-        invoiceId: saved.invoiceId,
-        sellerId: saved.sellerId,
-        price: saved.price,
-        quantity: saved.quantity,
-        status: saved.status,
-        createdAt: saved.createdAt,
-        updatedAt: saved.updatedAt,
+        listingId,
+        buyerWallet,
+        quantity: buyQuantity.toFixed(4),
+        totalPrice: totalPrice.toFixed(4),
+        transactionHash,
       };
     });
   }
 
-  private async getOwnedShareAmount(
-    manager: EntityManager,
-    invoiceId: string,
-    sellerId: string
-  ): Promise<Decimal> {
-    const result = await manager
-      .createQueryBuilder(Investment, "investment")
-      .select("COALESCE(SUM(CAST(investment.investmentAmount AS DECIMAL)), '0')", "total")
-      .where("investment.invoiceId = :invoiceId", { invoiceId })
-      .andWhere("investment.investorId = :sellerId", { sellerId })
-      .andWhere("investment.status IN (:...statuses)", {
-        statuses: [InvestmentStatus.PENDING, InvestmentStatus.CONFIRMED],
-      })
-      .getRawOne();
+  /**
+   * Cancel a listing (restricted to listing owner only).
+   */
+  async cancelListing(listingId: string, sellerWallet: string, reason?: string): Promise<SecondaryListing> {
+    const repository = this.dataSource.getRepository(SecondaryListing);
+    const listing = await repository.findOne({ where: { id: listingId } });
 
-    const total = new Decimal(result?.total ?? "0");
-    return total.isFinite() ? total : new Decimal(0);
-  }
+    if (!listing) {
+      throw new ServiceError("LISTING_NOT_FOUND", "Listing not found", 404);
+    }
 
-  private async transferOwnership(
-    manager: EntityManager,
-    invoiceId: string,
-    sellerId: string,
-    buyerId: string,
-    quantity: Decimal,
-    buyerWallet: string | null
-  ): Promise<void> {
-    let remainingToTransfer = quantity;
-    const sourceRows = await manager.find(Investment, {
-      where: {
-        invoiceId,
-        investorId: sellerId,
-        status: In([InvestmentStatus.PENDING, InvestmentStatus.CONFIRMED]),
-      },
-      order: { createdAt: "ASC" },
+    if (listing.sellerWallet !== sellerWallet) {
+      throw new ServiceError("FORBIDDEN", "Only the listing owner can cancel this listing", 403);
+    }
+
+    if (listing.status !== ListingStatus.ACTIVE) {
+      throw new ServiceError("LISTING_NOT_ACTIVE", "Only active listings can be cancelled", 400);
+    }
+
+    listing.status = ListingStatus.CANCELLED;
+    listing.cancellationReason = reason || null;
+
+    const saved = await repository.save(listing);
+
+    logger.info("secondary.listing.cancelled", {
+      listing_id: listingId,
+      seller_wallet: sellerWallet,
+      reason,
     });
 
-    for (const row of sourceRows) {
-      if (remainingToTransfer.lte(0)) break;
-      const rowAmount = new Decimal(row.investmentAmount || "0");
-      if (rowAmount.lte(0)) continue;
+    return saved;
+  }
 
-      const transferAmount = Decimal.min(rowAmount, remainingToTransfer);
-      if (transferAmount.lte(0)) continue;
+  private getSortColumn(sort: string): string {
+    const sortMap: Record<string, string> = {
+      price: "listing.price_per_fraction",
+      expires_at: "listing.expires_at",
+      created_at: "listing.created_at",
+    };
 
-      const existingBuyerInvestment = await manager.findOne(Investment, {
-        where: {
-          invoiceId,
-          investorId: buyerId,
-          investorWallet: buyerWallet,
-        },
-      });
-
-      if (existingBuyerInvestment) {
-        existingBuyerInvestment.investmentAmount = new Decimal(existingBuyerInvestment.investmentAmount)
-          .plus(transferAmount)
-          .toFixed(4);
-        await manager.save(existingBuyerInvestment);
-      } else {
-        const expectedReturnShare = new Decimal(row.expectedReturn || "0").times(
-          transferAmount.dividedBy(rowAmount).isFinite() ? transferAmount.dividedBy(rowAmount) : 1
-        );
-
-        await manager.save(
-          manager.create(Investment, {
-            invoiceId,
-            investorId: buyerId,
-            investorWallet: buyerWallet,
-            fundingBlock: row.fundingBlock,
-            investmentAmount: transferAmount.toFixed(4),
-            expectedReturn: expectedReturnShare.toFixed(4),
-            status: row.status,
-          })
-        );
-      }
-
-      const updatedSellerAmount = rowAmount.minus(transferAmount);
-      row.investmentAmount = updatedSellerAmount.toFixed(4);
-      if (updatedSellerAmount.lte(0)) {
-        row.status = InvestmentStatus.CANCELLED;
-      }
-      await manager.save(row);
-
-      remainingToTransfer = remainingToTransfer.minus(transferAmount);
-    }
-
-    if (remainingToTransfer.gt(0)) {
-      throw new ServiceError(
-        "LISTING_TRANSFER_FAILED",
-        "Unable to transfer the requested share quantity to the buyer",
-        409,
-        { remaining: remainingToTransfer.toFixed(4) }
-      );
-    }
+    return sortMap[sort] || "listing.created_at";
   }
 }
 

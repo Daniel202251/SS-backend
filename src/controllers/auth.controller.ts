@@ -7,13 +7,26 @@ export function createAuthController(authService: AuthService) {
   return {
     // Request challenge for signing
     challenge: async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-      const challenge = await authService.createChallenge(req.body.publicKey);
-      res.status(201).json({ challenge });
+      const target = (req.body?.publicKey || req.body?.wallet || req.query?.publicKey || req.query?.wallet) as string;
+      const challenge = await authService.createChallenge(target);
+      const statusCode = req.method === "GET" ? 200 : 201;
+      res.status(statusCode).json({
+        ...challenge,
+        challenge,
+      });
     },
 
     // Verify signed challenge and create session
     verify: async (
-      req: AuthenticatedRequest & { body: { publicKey: string; signature: string; nonce: string } },
+      req: AuthenticatedRequest & {
+        body: {
+          publicKey?: string;
+          wallet?: string;
+          signature: string;
+          nonce?: string;
+          challenge?: string;
+        };
+      },
       res: Response
     ): Promise<void> => {
       const forwarded = req.headers["x-forwarded-for"];

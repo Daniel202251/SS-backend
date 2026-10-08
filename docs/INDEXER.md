@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Soroban Event Indexer is a critical background service that keeps the off-chain database synchronized with on-chain Soroban contract states. It polls the Stellar RPC node for emitted events, decodes the `ScVal` data, and updates the local database accordingly.
+The Soroban Event Indexer is a background service that keeps the off-chain database synchronized with on-chain Soroban contract states. It polls the Soroban RPC `getEvents` endpoint, decodes the `ScVal` data, and updates the local database accordingly. Horizon does not expose Soroban contract events.
 
 ### Architecture Diagram
 
@@ -45,13 +45,47 @@ Topics related to distributing yields or payments:
 - `["payment", "failed"]`: Triggered when a specific payment fails.
   - Data: `Recipient`, `Amount`, `Error Code`
 
+### 4. Integration ACL, creator keys, curve migrations and atomic swaps
+
+Topics consumed by the read models exposed under `/api/v1/keys`, `/api/v1/swaps` and
+`/api/v1/admin/acl`. Each topic is handled by a `ContractEventHandler` registered on
+`ContractEventBus` (see `src/services/contract-event-bus.service.ts`), which
+`EventIndexerService` dispatches to after the event is logged. A handler failure is
+logged and skipped, so one bad projection never blocks the rest of the pipeline.
+
+- `["key_config_updated", key_id]`: new per-key buy caps and supply. Updates
+  `creator_keys` and invalidates the 60s buy-limit cache.
+- `["acl_updated", contract_address]`: whitelists (`action: "add"`, with
+  `permitted_functions`) or removes (`action: "remove"`) an integration contract.
+  Upserts `contract_acls`, appends to `contract_acl_logs`, and invalidates the 5m
+  ACL cache.
+- `["curve_migration_proposed", key_id, proposal_id]`: a bonding-curve migration
+  proposal with its parameters and timelock. Recorded as `pending` until the
+  matching execution event arrives.
+- `["curve_migration_executed", proposal_id]`: applies the migration, stamps
+  `executed_at` and applied parameters, and emits an admin notification.
+- `["atomic_swap_executed", buyer, seller, swap_id]`: a direct invoice-for-invoice
+  exchange. Records both sides, both amounts, and the fee, indexed by buyer and by
+  seller.
+
+Projections are idempotent on their on-chain identifier, so replaying a ledger range
+cannot create duplicate rows.
+
 ## Last-Synced Ledger Checkpointing
 
 To ensure no events are missed and to prevent processing duplicate events, the indexer relies on a checkpointing mechanism:
 
-1. **Polling**: The indexer queries the RPC `getEvents` endpoint using a ledger range (e.g., `startLedger` to `endLedger`).
-2. **Checkpointing**: After successfully processing all events up to `endLedger`, the indexer saves `endLedger` to the database as the `last_synced_ledger`.
-3. **Resume**: On restart, the indexer queries the database for `last_synced_ledger` and resumes polling from `last_synced_ledger + 1`.
+1. **Polling**: The indexer queries the Soroban RPC `getEvents` endpoint with configured contract IDs and follows its cursor through full pages.
+2. **Event log**: Each event is retained in `soroban_event_logs`, keyed by contract and RPC event ID. Successfully processed entries are marked processed; failed entries remain retryable.
+3. **Checkpointing**: After every returned page has been handled, the indexer stores the latest observed ledger in `soroban_indexer_checkpoints`, including when a ledger contains no matching events.
+4. **Resume**: On restart, polling resumes at `last_synced_ledger + 1`. Duplicate event delivery is skipped using the unique contract/event key.
+
+## Runtime Configuration
+
+- `SOROBAN_EVENT_INDEXER_ENABLED`: enable the background poller (default `false`).
+- `SOROBAN_EVENT_INDEXER_INTERVAL_MS`: poll interval in milliseconds (default `10000`).
+- `SOROBAN_EVENT_INDEXER_LAG_THRESHOLD_LEDGERS`: log a warning at or above this ledger lag (default `1000`).
+- `SOROBAN_ESCROW_CONTRACT_ID` and `SOROBAN_RPC_URL`: contract and Soroban RPC endpoint; both are required to start the poller.
 
 ## Failure Recovery Procedures
 

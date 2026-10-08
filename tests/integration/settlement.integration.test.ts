@@ -4,9 +4,11 @@ import { InvestmentService } from "../../src/services/investment.service";
 import { SettlementService } from "../../src/services/settlement.service";
 import { Invoice } from "../../src/models/Invoice.model";
 import { Investment } from "../../src/models/Investment.model";
+import { InvestorAcknowledgement } from "../../src/models/InvestorAcknowledgement.model";
 import { InvoiceStatus, InvestmentStatus } from "../../src/types/enums";
 import { logger } from "../../src/observability/logger";
 import { ServiceError } from "../../src/utils/service-error";
+import { NotificationService } from "../../src/services/notification.service";
 
 /**
  * Minimal in-memory TypeORM stand-in shared by InvestmentService and
@@ -80,7 +82,17 @@ function createFakeDataSource(invoice: Invoice) {
   };
 
   const dataSource = {
+    // InvestmentService requires a current terms acknowledgement before it
+    // creates an investment. This fixture focuses on settlement behavior, so
+    // its repository stand-in represents an already acknowledged investor.
+    getRepository: () => ({ findOne: async () => ({ acknowledgedAt: new Date() }) }),
     transaction: async (callback: (manager: FakeManager) => Promise<unknown>) => callback(manager),
+    // Issue #473 — the accreditation gate looks the investor's terms
+    // acknowledgement up before creating the investment.
+    getRepository: (entity: unknown) =>
+      entity === InvestorAcknowledgement
+        ? { findOne: async () => ({ acknowledgedAt: new Date() }) }
+        : manager,
   } as unknown as DataSource;
 
   return { dataSource, invoices, investments };
@@ -119,26 +131,47 @@ function confirmInvestment(investments: Map<string, Investment>, investment: Inv
 }
 
 // ── Helper: fund an invoice fully with N investors ──────────────────────────
+// REFACTORED: Added robust error handling and logging for edge cases and failures.
 
 async function fullyFundInvoice(
   dataSource: DataSource,
   investments: Map<string, Investment>,
   invoice: Invoice,
-  shares: Array<{ amount: string; wallet: string }>,
+  shares: Array<{ amount: string; wallet: string }>
 ) {
   const investmentService = new InvestmentService(dataSource);
   const created = [];
-  for (const share of shares) {
-    const inv = await investmentService.createInvestment({
+
+  try {
+    for (const share of shares) {
+      try {
+        const inv = await investmentService.createInvestment({
+          invoiceId: invoice.id,
+          investorId: crypto.randomUUID(),
+          investmentAmount: share.amount,
+          investorWallet: share.wallet,
+        });
+        confirmInvestment(investments, inv);
+        created.push(inv);
+      } catch (error) {
+        logger.error("Failed to create or confirm investment", {
+          invoiceId: invoice.id,
+          share: share.amount,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    }
+    return created;
+  } catch (error) {
+    logger.error("fullyFundInvoice failed", {
       invoiceId: invoice.id,
-      investorId: crypto.randomUUID(),
-      investmentAmount: share.amount,
-      investorWallet: share.wallet,
+      shareCount: shares.length,
+      successCount: created.length,
+      error: error instanceof Error ? error.message : String(error),
     });
-    confirmInvestment(investments, inv);
-    created.push(inv);
+    throw error;
   }
-  return created;
 }
 
 // ── Helper: locate a specific structured log call ──────────────────────────
@@ -153,11 +186,11 @@ type LogCall = [string, Record<string, unknown>?];
 function findLogCall(
   infoSpy: jest.SpyInstance,
   message: string,
-  predicate: (meta: Record<string, unknown>) => boolean = () => true,
+  predicate: (meta: Record<string, unknown>) => boolean = () => true
 ): LogCall | undefined {
   return (infoSpy.mock.calls as LogCall[]).find(
     ([loggedMessage, meta]) =>
-      loggedMessage === message && predicate((meta ?? {}) as Record<string, unknown>),
+      loggedMessage === message && predicate((meta ?? {}) as Record<string, unknown>)
   );
 }
 
@@ -165,7 +198,7 @@ function findSettlementTransitionLog(infoSpy: jest.SpyInstance): LogCall | undef
   return findLogCall(
     infoSpy,
     "Invoice lifecycle state transition.",
-    (meta) => meta.reason === "admin_settled",
+    (meta) => meta.reason === "admin_settled"
   );
 }
 
@@ -182,6 +215,12 @@ describe("Settlement integration: rejecting settlement of non-fully-funded invoi
     jest.clearAllMocks();
   });
 
+  it("should reject settlement of a published invoice (no investments)", async () => {
+    const invoice = createInvoice({ status: InvoiceStatus.PUBLISHED });
+    const { dataSource } = createFakeDataSource(invoice);
+
+    const settlementService = new SettlementService(dataSource);
+
     await expect(
       settlementService.settleInvoice({
         invoiceId: invoice.id,
@@ -189,23 +228,6 @@ describe("Settlement integration: rejecting settlement of non-fully-funded invoi
         actorWallet: "GADMIN",
       })
     ).rejects.toThrow(/Cannot settle an invoice with status published/);
-  it("should reject settlement of a published invoice (no investments)", async () => {
-    try {
-      const invoice = createInvoice({ status: InvoiceStatus.PUBLISHED });
-      const { dataSource } = createFakeDataSource(invoice);
-
-      const settlementService = new SettlementService(dataSource);
-
-      await expect(
-        settlementService.settleInvoice({
-          invoiceId: invoice.id,
-          proceeds: "6000.0000",
-          actorWallet: "GADMIN",
-        }),
-      ).rejects.toThrow(/Cannot settle an invoice with status published/);
-    } catch (error) {
-      throw new Error(`Settlement rejection test failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
   });
 
   it("should reject settlement of a partially funded invoice", async () => {
@@ -298,15 +320,14 @@ describe("Settlement integration: funding multiple investors then settling", () 
   });
 
   it("distributes proceeds pro-rata to each investor and marks the invoice settled", async () => {
-    try {
-      const invoice = createInvoice();
-      const { dataSource, invoices, investments } = createFakeDataSource(invoice);
+    const invoice = createInvoice();
+    const { dataSource, invoices, investments } = createFakeDataSource(invoice);
 
-      const investmentService = new InvestmentService(dataSource);
-      const settlementService = new SettlementService(dataSource);
+    const investmentService = new InvestmentService(dataSource);
+    const settlementService = new SettlementService(dataSource);
 
-      const investorAId = crypto.randomUUID();
-      const investorBId = crypto.randomUUID();
+    const investorAId = crypto.randomUUID();
+    const investorBId = crypto.randomUUID();
 
     const investmentA = await investmentService.createInvestment({
       invoiceId: invoice.id,
@@ -322,15 +343,12 @@ describe("Settlement integration: funding multiple investors then settling", () 
       investorWallet: "GINVESTORB1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
     });
 
-    // Simulate confirmed on-chain payment for both investments before settlement.
     for (const investment of [investmentA, investmentB]) {
       const stored = investments.get(investment.id)!;
       stored.status = InvestmentStatus.CONFIRMED;
       investments.set(investment.id, stored);
     }
 
-    // Invoice reaches FUNDED once fully subscribed (asserted by InvestmentService already);
-    // settlement requires FUNDED status.
     expect(invoices.get(invoice.id)?.status).toBe(InvoiceStatus.FUNDED);
 
     const result = await settlementService.settleInvoice({
@@ -342,43 +360,31 @@ describe("Settlement integration: funding multiple investors then settling", () 
     const returnByInvestor = new Map(
       result.settlements.map((settlement) => [settlement.investorId, settlement.actualReturn])
     );
-      const returnByInvestor = new Map(
-        result.settlements.map((settlement) => [settlement.investorId, settlement.actualReturn]),
-      );
 
-      expect(returnByInvestor.get(investorAId)).toBe("4400.0000");
-      expect(returnByInvestor.get(investorBId)).toBe("2200.0000");
+    expect(returnByInvestor.get(investorAId)).toBe("4400.0000");
+    expect(returnByInvestor.get(investorBId)).toBe("2200.0000");
 
-      expect(result.status).toBe(InvoiceStatus.SETTLED);
-      expect(invoices.get(invoice.id)?.status).toBe(InvoiceStatus.SETTLED);
+    expect(result.status).toBe(InvoiceStatus.SETTLED);
+    expect(invoices.get(invoice.id)?.status).toBe(InvoiceStatus.SETTLED);
 
     const sumOfReturns = result.settlements.reduce(
       (sum, settlement) => sum + Number(settlement.actualReturn),
       0
     );
     expect(sumOfReturns).toBeCloseTo(6600, 4);
-      const sumOfReturns = result.settlements.reduce(
-        (sum, settlement) => sum + Number(settlement.actualReturn),
-        0,
-      );
-      expect(sumOfReturns).toBeCloseTo(6600, 4);
-    } catch (error) {
-      throw new Error(`Pro-rata distribution test failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
   });
 
   it("logs settlement completion with the correct invoice_id, total_proceeds, and investor_count", async () => {
-    try {
-      const infoSpy = jest.spyOn(logger, "info");
+    const infoSpy = jest.spyOn(logger, "info");
 
-      const invoice = createInvoice();
-      const { dataSource, investments } = createFakeDataSource(invoice);
+    const invoice = createInvoice();
+    const { dataSource, investments } = createFakeDataSource(invoice);
 
-      const investmentService = new InvestmentService(dataSource);
-      const settlementService = new SettlementService(dataSource);
+    const investmentService = new InvestmentService(dataSource);
+    const settlementService = new SettlementService(dataSource);
 
-      const investorAId = crypto.randomUUID();
-      const investorBId = crypto.randomUUID();
+    const investorAId = crypto.randomUUID();
+    const investorBId = crypto.randomUUID();
 
     const investmentA = await investmentService.createInvestment({
       invoiceId: invoice.id,
@@ -409,19 +415,12 @@ describe("Settlement integration: funding multiple investors then settling", () 
       ([message]) => message === "Settlement flow completed."
     );
     expect(completionCall).toBeDefined();
-      const completionCall = infoSpy.mock.calls.find(
-        ([message]) => message === "Settlement flow completed.",
-      );
-      expect(completionCall).toBeDefined();
 
-      const metadata = completionCall?.[1] as Record<string, unknown>;
-      expect(metadata.invoice_id).toBe(invoice.id);
-      expect(metadata.total_proceeds).toBe("6600.0000000");
-      expect(metadata.investor_count).toBe(2);
-      expect(metadata.settled_at).toEqual(expect.any(String));
-    } catch (error) {
-      throw new Error(`Settlement logging test failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    const metadata = completionCall?.[1] as Record<string, unknown>;
+    expect(metadata.invoice_id).toBe(invoice.id);
+    expect(metadata.total_proceeds).toBe("6600.0000000");
+    expect(metadata.investor_count).toBe(2);
+    expect(metadata.settled_at).toEqual(expect.any(String));
   });
 
   it("does not log settlement completion when settlement fails", async () => {
@@ -459,40 +458,36 @@ describe("Settlement integration: single investor 100% share", () => {
   });
 
   it("returns the full proceeds to the only investor", async () => {
-    try {
-      const invoice = createInvoice();
-      const { dataSource, invoices, investments } = createFakeDataSource(invoice);
+    const invoice = createInvoice();
+    const { dataSource, invoices, investments } = createFakeDataSource(invoice);
 
-      const investmentService = new InvestmentService(dataSource);
-      const settlementService = new SettlementService(dataSource);
+    const investmentService = new InvestmentService(dataSource);
+    const settlementService = new SettlementService(dataSource);
 
-      const investorId = crypto.randomUUID();
-      const investment = await investmentService.createInvestment({
-        invoiceId: invoice.id,
-        investorId,
-        investmentAmount: "6000.0000",
-        investorWallet: "GINVESTOR100000000000000000000000000000000000000000000000",
-      });
+    const investorId = crypto.randomUUID();
+    const investment = await investmentService.createInvestment({
+      invoiceId: invoice.id,
+      investorId,
+      investmentAmount: "6000.0000",
+      investorWallet: "GINVESTOR100000000000000000000000000000000000000000000000",
+    });
 
-      const stored = investments.get(investment.id)!;
-      stored.status = InvestmentStatus.CONFIRMED;
-      investments.set(investment.id, stored);
+    const stored = investments.get(investment.id)!;
+    stored.status = InvestmentStatus.CONFIRMED;
+    investments.set(investment.id, stored);
 
-      expect(invoices.get(invoice.id)?.status).toBe(InvoiceStatus.FUNDED);
+    expect(invoices.get(invoice.id)?.status).toBe(InvoiceStatus.FUNDED);
 
-      const result = await settlementService.settleInvoice({
-        invoiceId: invoice.id,
-        proceeds: "3300.0000",
-        actorWallet: "GADMINWALLET1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-      });
+    const result = await settlementService.settleInvoice({
+      invoiceId: invoice.id,
+      proceeds: "3300.0000",
+      actorWallet: "GADMINWALLET1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    });
 
-      expect(result.status).toBe(InvoiceStatus.SETTLED);
-      expect(result.settlements).toHaveLength(1);
-      expect(result.settlements[0]?.actualReturn).toBe("3300.0000");
-      expect(invoices.get(invoice.id)?.status).toBe(InvoiceStatus.SETTLED);
-    } catch (error) {
-      throw new Error(`Single investor test failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    expect(result.status).toBe(InvoiceStatus.SETTLED);
+    expect(result.settlements).toHaveLength(1);
+    expect(result.settlements[0]?.actualReturn).toBe("3300.0000");
+    expect(invoices.get(invoice.id)?.status).toBe(InvoiceStatus.SETTLED);
   });
 });
 
@@ -506,21 +501,17 @@ describe("Settlement integration: edge cases and input validation", () => {
   });
 
   it("rejects settlement of a non-existent invoice with 404", async () => {
-    try {
-      const invoice = createInvoice();
-      const { dataSource } = createFakeDataSource(invoice);
-      const settlementService = new SettlementService(dataSource);
+    const invoice = createInvoice();
+    const { dataSource } = createFakeDataSource(invoice);
+    const settlementService = new SettlementService(dataSource);
 
-      await expect(
-        settlementService.settleInvoice({
-          invoiceId: crypto.randomUUID(),
-          proceeds: "6000.0000",
-          actorWallet: "GADMIN",
-        }),
-      ).rejects.toThrow(/Invoice not found/);
-    } catch (error) {
-      throw new Error(`Non-existent invoice test failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    await expect(
+      settlementService.settleInvoice({
+        invoiceId: crypto.randomUUID(),
+        proceeds: "6000.0000",
+        actorWallet: "GADMIN",
+      })
+    ).rejects.toThrow(/Invoice not found/);
   });
 
   it("rejects settlement with zero proceeds", async () => {
@@ -533,7 +524,7 @@ describe("Settlement integration: edge cases and input validation", () => {
         invoiceId: invoice.id,
         proceeds: "0.0000",
         actorWallet: "GADMIN",
-      }),
+      })
     ).rejects.toThrow(/Settlement proceeds must be greater than zero/);
   });
 
@@ -547,7 +538,7 @@ describe("Settlement integration: edge cases and input validation", () => {
         invoiceId: invoice.id,
         proceeds: "-100.0000",
         actorWallet: "GADMIN",
-      }),
+      })
     ).rejects.toThrow(/Settlement proceeds must be greater than zero/);
   });
 
@@ -561,7 +552,7 @@ describe("Settlement integration: edge cases and input validation", () => {
         invoiceId: invoice.id,
         proceeds: "6000.0000",
         actorWallet: "GADMIN",
-      }),
+      })
     ).rejects.toThrow(/Cannot settle an invoice with status settled/);
   });
 
@@ -575,7 +566,7 @@ describe("Settlement integration: edge cases and input validation", () => {
         invoiceId: invoice.id,
         proceeds: "6000.0000",
         actorWallet: "GADMIN",
-      }),
+      })
     ).rejects.toThrow(/Cannot settle an invoice with status cancelled/);
   });
 
@@ -589,7 +580,7 @@ describe("Settlement integration: edge cases and input validation", () => {
         invoiceId: invoice.id,
         proceeds: "6000.0000",
         actorWallet: "GADMIN",
-      }),
+      })
     ).rejects.toThrow(/Cannot settle an invoice with status draft/);
   });
 
@@ -603,27 +594,34 @@ describe("Settlement integration: edge cases and input validation", () => {
         invoiceId: invoice.id,
         proceeds: "6000.0000",
         actorWallet: "GADMIN",
-      }),
+      })
     ).rejects.toThrow(/Invoice has no confirmed investments to settle/);
   });
 
+  // These four cases previously drove the assertion through a
+  // try/await/fail("...")/catch block. jest-circus (Jest's default test
+  // runner since v27, and the only runner installed here — jest-jasmine2
+  // is absent from node_modules) does not implement the global fail()
+  // helper at runtime, even though @types/jest still declares its type for
+  // backward compatibility. Had settleInvoice ever regressed to resolve
+  // instead of reject here, that fail() call would have thrown
+  // "fail is not defined" instead of a clear assertion failure, masking
+  // exactly the regression these tests exist to catch. `.rejects` reports
+  // a clean, standard Jest failure if the promise unexpectedly resolves,
+  // with no dependency on that helper.
   it("throws ServiceError with INVALID_PROCEEDS code for zero proceeds", async () => {
     const invoice = createInvoice({ status: InvoiceStatus.FUNDED });
     const { dataSource } = createFakeDataSource(invoice);
     const settlementService = new SettlementService(dataSource);
 
-    try {
-      await settlementService.settleInvoice({
-        invoiceId: invoice.id,
-        proceeds: "0.0000",
-        actorWallet: "GADMIN",
-      });
-      fail("Expected ServiceError to be thrown");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ServiceError);
-      expect((error as ServiceError).code).toBe("INVALID_PROCEEDS");
-      expect((error as ServiceError).statusCode).toBe(400);
-    }
+    const settlement = settlementService.settleInvoice({
+      invoiceId: invoice.id,
+      proceeds: "0.0000",
+      actorWallet: "GADMIN",
+    });
+
+    await expect(settlement).rejects.toBeInstanceOf(ServiceError);
+    await expect(settlement).rejects.toMatchObject({ code: "INVALID_PROCEEDS", statusCode: 400 });
   });
 
   it("throws ServiceError with INVOICE_NOT_FOUND code for missing invoice", async () => {
@@ -631,18 +629,14 @@ describe("Settlement integration: edge cases and input validation", () => {
     const { dataSource } = createFakeDataSource(invoice);
     const settlementService = new SettlementService(dataSource);
 
-    try {
-      await settlementService.settleInvoice({
-        invoiceId: crypto.randomUUID(),
-        proceeds: "6000.0000",
-        actorWallet: "GADMIN",
-      });
-      fail("Expected ServiceError to be thrown");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ServiceError);
-      expect((error as ServiceError).code).toBe("INVOICE_NOT_FOUND");
-      expect((error as ServiceError).statusCode).toBe(404);
-    }
+    const settlement = settlementService.settleInvoice({
+      invoiceId: crypto.randomUUID(),
+      proceeds: "6000.0000",
+      actorWallet: "GADMIN",
+    });
+
+    await expect(settlement).rejects.toBeInstanceOf(ServiceError);
+    await expect(settlement).rejects.toMatchObject({ code: "INVOICE_NOT_FOUND", statusCode: 404 });
   });
 
   it("throws ServiceError with INVALID_INVOICE_STATUS code for wrong status", async () => {
@@ -650,17 +644,14 @@ describe("Settlement integration: edge cases and input validation", () => {
     const { dataSource } = createFakeDataSource(invoice);
     const settlementService = new SettlementService(dataSource);
 
-    try {
-      await settlementService.settleInvoice({
-        invoiceId: invoice.id,
-        proceeds: "6000.0000",
-        actorWallet: "GADMIN",
-      });
-      fail("Expected ServiceError to be thrown");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ServiceError);
-      expect((error as ServiceError).code).toBe("INVALID_INVOICE_STATUS");
-    }
+    const settlement = settlementService.settleInvoice({
+      invoiceId: invoice.id,
+      proceeds: "6000.0000",
+      actorWallet: "GADMIN",
+    });
+
+    await expect(settlement).rejects.toBeInstanceOf(ServiceError);
+    await expect(settlement).rejects.toMatchObject({ code: "INVALID_INVOICE_STATUS" });
   });
 
   it("throws ServiceError with NO_CONFIRMED_INVESTMENTS code when no investments confirmed", async () => {
@@ -668,17 +659,14 @@ describe("Settlement integration: edge cases and input validation", () => {
     const { dataSource } = createFakeDataSource(invoice);
     const settlementService = new SettlementService(dataSource);
 
-    try {
-      await settlementService.settleInvoice({
-        invoiceId: invoice.id,
-        proceeds: "6000.0000",
-        actorWallet: "GADMIN",
-      });
-      fail("Expected ServiceError to be thrown");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ServiceError);
-      expect((error as ServiceError).code).toBe("NO_CONFIRMED_INVESTMENTS");
-    }
+    const settlement = settlementService.settleInvoice({
+      invoiceId: invoice.id,
+      proceeds: "6000.0000",
+      actorWallet: "GADMIN",
+    });
+
+    await expect(settlement).rejects.toBeInstanceOf(ServiceError);
+    await expect(settlement).rejects.toMatchObject({ code: "NO_CONFIRMED_INVESTMENTS" });
   });
 });
 
@@ -696,9 +684,8 @@ describe("Settlement integration: pro-rata distribution edge cases", () => {
   });
 
   it("handles uneven three-way split correctly", async () => {
-    try {
-      const invoice = createInvoice({ amount: "10000.0000", netAmount: "10000.0000" });
-      const { dataSource, invoices, investments } = createFakeDataSource(invoice);
+    const invoice = createInvoice({ amount: "10000.0000", netAmount: "10000.0000" });
+    const { dataSource, invoices, investments } = createFakeDataSource(invoice);
 
     const shares = [
       { amount: "5000.0000", wallet: "GINVESTOR1" + "A".repeat(54) },
@@ -720,20 +707,17 @@ describe("Settlement integration: pro-rata distribution edge cases", () => {
     expect(result.settlements).toHaveLength(3);
 
     const returnByInvestor = new Map(
-      result.settlements.map((s) => [s.investorId, Number(s.actualReturn)]),
+      result.settlements.map((s) => [s.investorId, Number(s.actualReturn)])
     );
 
-      // 50% -> 5000, 30% -> 3000, 20% -> 2000
-      const investorIds = createdInvestments.map((inv) => inv.investorId);
-      expect(returnByInvestor.get(investorIds[0])).toBe(5000);
-      expect(returnByInvestor.get(investorIds[1])).toBe(3000);
-      expect(returnByInvestor.get(investorIds[2])).toBe(2000);
+    // 50% -> 5000, 30% -> 3000, 20% -> 2000
+    const investorIds = createdInvestments.map((inv) => inv.investorId);
+    expect(returnByInvestor.get(investorIds[0])).toBe(5000);
+    expect(returnByInvestor.get(investorIds[1])).toBe(3000);
+    expect(returnByInvestor.get(investorIds[2])).toBe(2000);
 
-      const totalReturn = [...returnByInvestor.values()].reduce((a, b) => a + b, 0);
-      expect(totalReturn).toBeCloseTo(10000, 4);
-    } catch (error) {
-      throw new Error(`Uneven split test failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    const totalReturn = [...returnByInvestor.values()].reduce((a, b) => a + b, 0);
+    expect(totalReturn).toBeCloseTo(10000, 4);
   });
 
   it("distributes correctly when proceeds exceed the funded amount", async () => {
@@ -756,7 +740,7 @@ describe("Settlement integration: pro-rata distribution edge cases", () => {
     });
 
     const returnByInvestor = new Map(
-      result.settlements.map((s) => [s.investorId, Number(s.actualReturn)]),
+      result.settlements.map((s) => [s.investorId, Number(s.actualReturn)])
     );
 
     // 4000/6000 * 9000 = 6000, 2000/6000 * 9000 = 3000
@@ -788,7 +772,7 @@ describe("Settlement integration: pro-rata distribution edge cases", () => {
     });
 
     const returnByInvestor = new Map(
-      result.settlements.map((s) => [s.investorId, Number(s.actualReturn)]),
+      result.settlements.map((s) => [s.investorId, Number(s.actualReturn)])
     );
 
     // Equal shares: each gets 1000
@@ -797,13 +781,43 @@ describe("Settlement integration: pro-rata distribution edge cases", () => {
     expect(returnByInvestor.get(investorIds[1])).toBe(1000);
   });
 
+  it("accounts for fractional distribution remainder without losing precision", async () => {
+    const invoice = createInvoice({ amount: "3.0000", netAmount: "3.0000" });
+    const { dataSource, investments } = createFakeDataSource(invoice);
+
+    await fullyFundInvoice(dataSource, investments, invoice, [
+      { amount: "1.0000", wallet: "GINVESTOR_REMAINDER_A" + "A".repeat(42) },
+      { amount: "1.0000", wallet: "GINVESTOR_REMAINDER_B" + "B".repeat(42) },
+      { amount: "1.0000", wallet: "GINVESTOR_REMAINDER_C" + "C".repeat(42) },
+    ]);
+
+    const settlementService = new SettlementService(dataSource);
+    const result = await settlementService.settleInvoice({
+      invoiceId: invoice.id,
+      proceeds: "1.0000",
+      actorWallet: "GADMINWALLET1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    });
+
+    expect(result.settlements.map(({ actualReturn }) => actualReturn)).toEqual([
+      "0.3333",
+      "0.3333",
+      "0.3333",
+    ]);
+    expect(result.totalDistributed).toBe("0.9999");
+    expect(result.remainder).toBe("0.0001");
+    expect(
+      result.settlements.reduce(
+        (total, { actualReturn }) => total + BigInt(actualReturn.replace(".", "")),
+        0n
+      ) + BigInt(result.remainder.replace(".", ""))
+    ).toBe(10_000n);
+  });
+
   it("preserves settlement result structure with all required fields", async () => {
     const invoice = createInvoice();
     const { dataSource, invoices, investments } = createFakeDataSource(invoice);
 
-    const shares = [
-      { amount: "6000.0000", wallet: "GINVESTOR_FULL" + "Z".repeat(50) },
-    ];
+    const shares = [{ amount: "6000.0000", wallet: "GINVESTOR_FULL" + "Z".repeat(50) }];
 
     const createdInvestments = await fullyFundInvoice(dataSource, investments, invoice, shares);
     expect(invoices.get(invoice.id)?.status).toBe(InvoiceStatus.FUNDED);
@@ -868,7 +882,7 @@ describe("Settlement integration: pro-rata distribution edge cases", () => {
         invoiceId: invoice.id,
         proceeds: "6000.0000",
         actorWallet: "GADMIN",
-      }),
+      })
     ).rejects.toThrow();
 
     expect(findSettlementTransitionLog(infoSpy)).toBeUndefined();
@@ -889,11 +903,10 @@ describe("Settlement integration: logging verification", () => {
   });
 
   it("logs both lifecycle transition and settlement completion on successful settlement", async () => {
-    try {
-      const infoSpy = jest.spyOn(logger, "info");
+    const infoSpy = jest.spyOn(logger, "info");
 
-      const invoice = createInvoice();
-      const { dataSource, investments } = createFakeDataSource(invoice);
+    const invoice = createInvoice();
+    const { dataSource, investments } = createFakeDataSource(invoice);
 
     await fullyFundInvoice(dataSource, investments, invoice, [
       { amount: "4000.0000", wallet: "GINVESTOR_LOG1" + "M".repeat(49) },
@@ -913,16 +926,13 @@ describe("Settlement integration: logging verification", () => {
     expect(lifecycleCall).toBeDefined();
     expect(completionCall).toBeDefined();
 
-      const lifecycleMeta = lifecycleCall?.[1] as Record<string, unknown>;
-      expect(lifecycleMeta.from_state).toBe(InvoiceStatus.FUNDED);
-      expect(lifecycleMeta.to_state).toBe(InvoiceStatus.SETTLED);
+    const lifecycleMeta = lifecycleCall?.[1] as Record<string, unknown>;
+    expect(lifecycleMeta.from_state).toBe(InvoiceStatus.FUNDED);
+    expect(lifecycleMeta.to_state).toBe(InvoiceStatus.SETTLED);
 
-      const completionMeta = completionCall?.[1] as Record<string, unknown>;
-      expect(completionMeta.investor_count).toBe(2);
-      expect(completionMeta.total_proceeds).toBe("6600.0000000");
-    } catch (error) {
-      throw new Error(`Lifecycle logging test failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    const completionMeta = completionCall?.[1] as Record<string, unknown>;
+    expect(completionMeta.investor_count).toBe(2);
+    expect(completionMeta.total_proceeds).toBe("6600.0000000");
   });
 
   it("does not log settlement-related info logs when invoice not found", async () => {
@@ -937,10 +947,53 @@ describe("Settlement integration: logging verification", () => {
         invoiceId: crypto.randomUUID(),
         proceeds: "6000.0000",
         actorWallet: "GADMIN",
-      }),
+      })
     ).rejects.toThrow(/Invoice not found/);
 
     expect(findSettlementTransitionLog(infoSpy)).toBeUndefined();
     expect(findSettlementCompletionLog(infoSpy)).toBeUndefined();
+  });
+
+  it("completes settlement and logs notification failure when delivery fails", async () => {
+    const errorSpy = jest.spyOn(logger, "error");
+    const invoice = createInvoice();
+    const { dataSource, invoices, investments } = createFakeDataSource(invoice);
+    const notificationService = {
+      createNotification: jest
+        .fn()
+        .mockRejectedValue(new Error("notification provider unavailable")),
+    } as unknown as NotificationService;
+
+    await fullyFundInvoice(dataSource, investments, invoice, [
+      { amount: "6000.0000", wallet: "GINVESTOR_NOTIFICATION" + "N".repeat(40) },
+    ]);
+
+    const settlementService = new SettlementService(
+      dataSource,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      notificationService
+    );
+    const result = await settlementService.settleInvoice({
+      invoiceId: invoice.id,
+      proceeds: "6000.0000",
+      actorWallet: "GADMINWALLET1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    });
+
+    expect(result.status).toBe(InvoiceStatus.SETTLED);
+    expect(invoices.get(invoice.id)?.status).toBe(InvoiceStatus.SETTLED);
+    expect(investments.get(result.settlements[0]!.investmentId)?.status).toBe(
+      InvestmentStatus.SETTLED
+    );
+    expect(notificationService.createNotification).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "settlement.notifications.failed",
+      expect.objectContaining({
+        invoiceId: invoice.id,
+        error: "notification provider unavailable",
+      })
+    );
   });
 });

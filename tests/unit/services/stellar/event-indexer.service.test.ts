@@ -1,6 +1,6 @@
 import { nativeToScVal, xdr } from "stellar-sdk";
 import { EventIndexerService } from "../../../../src/services/stellar/event-indexer.service";
-import { InvoiceStatus } from "../../../../src/types/enums";
+import { InvestmentStatus, InvoiceStatus } from "../../../../src/types/enums";
 import type { AppLogger } from "../../../../src/observability/logger";
 
 describe("EventIndexerService (Issue #135)", () => {
@@ -9,6 +9,7 @@ describe("EventIndexerService (Issue #135)", () => {
 
   let mockLogger: AppLogger;
   let mockEventLogRepo: any;
+  let mockCheckpointRepo: any;
   let mockInvoiceRepo: any;
   let mockInvestmentRepo: any;
   let mockRpcServer: any;
@@ -26,7 +27,17 @@ describe("EventIndexerService (Issue #135)", () => {
       create: jest.fn().mockImplementation((data) => data),
       save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
       update: jest.fn().mockResolvedValue({ affected: 1 }),
-      findOne: jest.fn().mockResolvedValue({ ledgerSequence: "500" }),
+      findOne: jest
+        .fn()
+        .mockImplementation(({ where }) =>
+          Promise.resolve(where?.eventId ? null : { ledgerSequence: "500" })
+        ),
+    };
+
+    mockCheckpointRepo = {
+      create: jest.fn().mockImplementation((data) => data),
+      save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
+      findOne: jest.fn().mockResolvedValue(null),
     };
 
     mockInvoiceRepo = {
@@ -248,6 +259,73 @@ describe("EventIndexerService (Issue #135)", () => {
         expect.objectContaining({ id: "INV-100", status: InvoiceStatus.SETTLED })
       );
     });
+
+    it("skips a previously processed event on redelivery", async () => {
+      mockEventLogRepo.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ processed: true });
+      const service = new EventIndexerService({
+        contractIds: [ESCROW_CONTRACT_ID],
+        eventLogRepository: mockEventLogRepo,
+        invoiceRepository: mockInvoiceRepo,
+        logger: mockLogger,
+      });
+      const event = {
+        id: "evt-duplicate",
+        contractId: ESCROW_CONTRACT_ID,
+        ledger: 2005,
+        ledgerClosedAt: "2026-08-25T12:10:00Z",
+        txHash: "0xdef",
+        topic: "create_escrow",
+        topics: ["create_escrow", "INV-100"],
+        data: null,
+        inSuccessfulContractCall: true,
+      };
+
+      await service.ingestEvents([event]);
+      await service.ingestEvents([event]);
+
+      expect(mockInvoiceRepo.save).toHaveBeenCalledTimes(1);
+      expect(mockEventLogRepo.save).toHaveBeenCalledTimes(1);
+    });
+
+    it("confirms an investment identified by the event payload", async () => {
+      const investment = {
+        id: "investment-1",
+        status: InvestmentStatus.PENDING,
+        transactionHash: null,
+        fundingBlock: null,
+      };
+      mockInvestmentRepo.findOne.mockResolvedValue(investment);
+      const service = new EventIndexerService({
+        contractIds: [ESCROW_CONTRACT_ID],
+        investmentRepository: mockInvestmentRepo,
+        logger: mockLogger,
+      });
+
+      await service.ingestEvents([
+        {
+          id: "evt-investment-funded",
+          contractId: ESCROW_CONTRACT_ID,
+          ledger: 2006,
+          ledgerClosedAt: "2026-08-25T12:11:00Z",
+          txHash: "0xinvestment",
+          topic: "investment_funded",
+          topics: ["investment_funded"],
+          data: { investment_id: "investment-1" },
+          inSuccessfulContractCall: true,
+        },
+      ]);
+
+      expect(mockInvestmentRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "investment-1",
+          status: InvestmentStatus.CONFIRMED,
+          transactionHash: "0xinvestment",
+          fundingBlock: "2006",
+        })
+      );
+    });
   });
 
   describe("Last Indexed Ledger & Lifecycle", () => {
@@ -262,6 +340,23 @@ describe("EventIndexerService (Issue #135)", () => {
 
       const lastLedger = await service.getLastIndexedLedger();
       expect(lastLedger).toBe(9999);
+    });
+
+    it("persists a checkpoint independently of event rows", async () => {
+      const service = new EventIndexerService({
+        contractIds: [ESCROW_CONTRACT_ID],
+        checkpointRepository: mockCheckpointRepo,
+        logger: mockLogger,
+      });
+
+      await service.saveCheckpoint(1200);
+
+      expect(mockCheckpointRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          checkpointKey: ESCROW_CONTRACT_ID,
+          ledgerSequence: "1200",
+        })
+      );
     });
 
     it("should start and stop timer loop without errors", () => {
