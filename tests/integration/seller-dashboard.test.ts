@@ -12,6 +12,8 @@ import { KYCVerification } from "../../src/models/KYCVerification.model";
 import { Notification } from "../../src/models/Notification.model";
 import { KycHistory } from "../../src/models/KycHistory.model";
 import { SecondaryListing } from "../../src/models/SecondaryListing.model";
+import { SecondaryMarketListing } from "../../src/models/SecondaryMarketListing.model";
+import { SecondaryMarketPurchase } from "../../src/models/SecondaryMarketPurchase.model";
 import { Watchlist } from "../../src/models/Watchlist.model";
 import { UserType, InvoiceStatus, KYCStatus } from "../../src/types/enums";
 import { createAuthService } from "../../src/services/auth.service";
@@ -46,7 +48,7 @@ describe("Integration: Seller Invoice Isolation", () => {
     dataSource = new DataSource({
       type: "sqlite",
       database: ":memory:",
-      entities: [User, Invoice, Investment, AuthChallenge, Transaction, KYCVerification, Notification, KycHistory, SecondaryListing, Watchlist],
+      entities: [User, Invoice, Investment, AuthChallenge, Transaction, KYCVerification, Notification, KycHistory, SecondaryListing, SecondaryMarketListing, SecondaryMarketPurchase, Watchlist],
       synchronize: true,
       dropSchema: true,
     });
@@ -145,7 +147,7 @@ describe("Integration: Seller Dashboard Aggregates", () => {
     dataSource = new DataSource({
       type: "sqlite",
       database: ":memory:",
-      entities: [User, Invoice, Investment, AuthChallenge, Transaction, KYCVerification, Notification, KycHistory, SecondaryListing, Watchlist],
+      entities: [User, Invoice, Investment, AuthChallenge, Transaction, KYCVerification, Notification, KycHistory, SecondaryListing, SecondaryMarketListing, SecondaryMarketPurchase, Watchlist],
       synchronize: true,
       dropSchema: true,
     });

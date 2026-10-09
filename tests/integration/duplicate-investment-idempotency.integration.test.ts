@@ -7,6 +7,8 @@ import { KYCVerification } from "../../src/models/KYCVerification.model";
 import { Notification } from "../../src/models/Notification.model";
 import { KycHistory } from "../../src/models/KycHistory.model";
 import { SecondaryListing } from "../../src/models/SecondaryListing.model";
+import { SecondaryMarketListing } from "../../src/models/SecondaryMarketListing.model";
+import { SecondaryMarketPurchase } from "../../src/models/SecondaryMarketPurchase.model";
 import { Watchlist } from "../../src/models/Watchlist.model";
 import { AuthChallenge } from "../../src/models/AuthChallenge.model";
 import {
@@ -134,6 +136,8 @@ describe("Duplicate investment funding idempotency (issue #219)", () => {
         Notification,
         KycHistory,
         SecondaryListing,
+        SecondaryMarketListing,
+        SecondaryMarketPurchase,
         Watchlist,
         AuthChallenge,
       ],

@@ -17,6 +17,7 @@ import Decimal from "decimal.js";
 import { InvoiceStatus } from "../types/enums";
 import { logger } from "../observability/logger";
 import { AppError } from "../utils/http-error";
+import { SecondaryMarketListing } from "./SecondaryMarketListing.model";
 
 /**
  * Frozen state transition map optimized for performance.
@@ -193,8 +194,8 @@ export class Invoice {
   @OneToMany("Investment", "invoice")
   investments?: import("./Investment.model").Investment[];
 
-  @OneToMany("SecondaryMarketListing", "invoice")
-  secondaryMarketListings!: import("./SecondaryMarketListing.model").SecondaryMarketListing[];
+  @OneToMany(() => SecondaryMarketListing, (listing) => listing.invoice)
+  secondaryMarketListings?: SecondaryMarketListing[];
 
   @OneToMany("Transaction", "invoice")
   transactions?: import("./Transaction.model").Transaction[];

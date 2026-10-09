@@ -99,6 +99,7 @@ function validInputs(
   if (to === InvoiceStatus.FUNDED) return { actor: system, context: { fundedAmount: "950" } };
   if (to === InvoiceStatus.SETTLED) return { actor: system, context: {} };
   if (to === InvoiceStatus.FAILED) return { actor: system, context: {} };
+  if (to === InvoiceStatus.EXPIRED) return { actor: system, context: {} };
   if (from === InvoiceStatus.PENDING && to === InvoiceStatus.PUBLISHED) {
     return { actor: admin, context: {} };
   }
@@ -120,6 +121,7 @@ const VALID_EDGES: Array<[InvoiceStatus, InvoiceStatus]> = [
   [InvoiceStatus.PENDING, InvoiceStatus.REJECTED],
   [InvoiceStatus.PENDING, InvoiceStatus.CANCELLED],
   [InvoiceStatus.PUBLISHED, InvoiceStatus.FUNDED],
+  [InvoiceStatus.PUBLISHED, InvoiceStatus.EXPIRED],
   [InvoiceStatus.PUBLISHED, InvoiceStatus.CANCELLED],
   [InvoiceStatus.PUBLISHED, InvoiceStatus.FAILED],
   [InvoiceStatus.FUNDED, InvoiceStatus.SETTLED],
@@ -150,6 +152,7 @@ describe("invoice status state machine (#468)", () => {
       expect(isTerminalStatus(InvoiceStatus.REJECTED)).toBe(true);
       expect(isTerminalStatus(InvoiceStatus.CANCELLED)).toBe(true);
       expect(isTerminalStatus(InvoiceStatus.FAILED)).toBe(true);
+      expect(isTerminalStatus(InvoiceStatus.EXPIRED)).toBe(true);
       expect(isTerminalStatus(InvoiceStatus.DRAFT)).toBe(false);
     });
 

@@ -31,6 +31,8 @@ import { KYCVerification } from "../../src/models/KYCVerification.model";
 import { Notification } from "../../src/models/Notification.model";
 import { KycHistory } from "../../src/models/KycHistory.model";
 import { SecondaryListing } from "../../src/models/SecondaryListing.model";
+import { SecondaryMarketListing } from "../../src/models/SecondaryMarketListing.model";
+import { SecondaryMarketPurchase } from "../../src/models/SecondaryMarketPurchase.model";
 import { Watchlist } from "../../src/models/Watchlist.model";
 
 describe("Integration: Invoice Token Holders Authorization", () => {
@@ -55,6 +57,8 @@ describe("Integration: Invoice Token Holders Authorization", () => {
         Notification,
         KycHistory,
         SecondaryListing,
+        SecondaryMarketListing,
+        SecondaryMarketPurchase,
         Watchlist,
       ],
       synchronize: true,
